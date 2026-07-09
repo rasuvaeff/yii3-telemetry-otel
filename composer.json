@@ -26,7 +26,7 @@
         "php": "8.3 - 8.5",
         "open-telemetry/api": "^1.5",
         "open-telemetry/context": "^1.5",
-        "open-telemetry/exporter-otlp": "^1.0",
+        "open-telemetry/exporter-otlp": "^1.4",
         "open-telemetry/sdk": "^1.7",
         "psr/http-message": "^2.0",
         "psr/http-server-handler": "^1.0",
@@ -49,7 +49,6 @@
     "suggest": {
         "ext-protobuf": "Faster OTLP protobuf serialization (pure-PHP google/protobuf is the fallback)",
         "guzzlehttp/guzzle": "PSR-18 HTTP client for the OTLP/HTTP transport",
-        "open-telemetry/exporter-otlp": "OTLP exporter to ship spans to an OpenTelemetry Collector",
         "php-http/discovery": "PSR-18/PSR-17 discovery used by the OTLP/HTTP transport"
     },
     "repositories": [

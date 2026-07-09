@@ -20,7 +20,7 @@ propagation.
 
 - PHP 8.3+ (64-bit)
 - `rasuvaeff/yii3-telemetry` ^1.0
-- `open-telemetry/sdk` ^1.7, `open-telemetry/exporter-otlp` ^1.0
+- `open-telemetry/sdk` ^1.7, `open-telemetry/exporter-otlp` ^1.4
 - A PSR-18 HTTP client for OTLP export (e.g. `guzzlehttp/guzzle`)
 
 ## Installation

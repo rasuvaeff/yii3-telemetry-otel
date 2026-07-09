@@ -17,4 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TraceContextExtractor` / `TraceContextInjector` bridge core W3C context and
   the OTel context.
 - `SpanFlusher` wraps `TracerProvider::forceFlush()` for long-running workers.
+- `OtelTracer::startSpan()` — a manual (non-activated) OTel span for split
+  begin/end instrumentation, backing the core `TracerInterface::startSpan()`.
 - `yiisoft/config` wiring: binds only the core `TracerProviderInterface`.

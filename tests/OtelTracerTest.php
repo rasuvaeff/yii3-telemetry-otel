@@ -186,6 +186,24 @@ final class OtelTracerTest
         Assert::same($this->onlySpan()->getInstrumentationScope()->getName(), 'custom.scope');
     }
 
+    public function startSpanExportsADetachedSpanWhenEnded(): void
+    {
+        $span = $this->tracer->startSpan('manual', ['k' => 'v'], TraceKind::Client);
+
+        Assert::true($span->isRecording());
+        // Not activated: it does not become the current span.
+        Assert::false($this->tracer->currentSpan()->getTraceContext()->isValid());
+        // Not exported until the caller ends it.
+        Assert::count($this->exporter->getSpans(), 0);
+
+        $span->end();
+
+        $exported = $this->onlySpan();
+        Assert::same($exported->getName(), 'manual');
+        Assert::same($exported->getKind(), TraceKind::Client->value);
+        Assert::same($exported->getAttributes()->get('k'), 'v');
+    }
+
     public function mapsTraceStateFromTheSpanContext(): void
     {
         $spanContext = SpanContext::create(

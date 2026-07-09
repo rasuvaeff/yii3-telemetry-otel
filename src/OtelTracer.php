@@ -64,6 +64,25 @@ final readonly class OtelTracer implements TracerInterface
         }
     }
 
+    /**
+     * @param array<string, bool|int|float|string|array|null> $attributes
+     */
+    #[\Override]
+    public function startSpan(
+        string $name,
+        array $attributes = [],
+        TraceKind $traceKind = TraceKind::Internal,
+    ): SpanInterface {
+        $builder = $this->tracer->spanBuilder($name === '' ? 'unnamed' : $name)->setSpanKind($traceKind->value);
+
+        foreach ($attributes as $key => $value) {
+            $builder->setAttribute($key, $value);
+        }
+
+        // Not activated: the caller ends it; the parent is the active OTel context.
+        return new OtelSpan($builder->startSpan());
+    }
+
     #[\Override]
     public function currentSpan(): SpanInterface
     {

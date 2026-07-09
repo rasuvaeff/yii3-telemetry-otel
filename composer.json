@@ -1,0 +1,127 @@
+{
+    "name": "rasuvaeff/yii3-telemetry-otel",
+    "description": "OpenTelemetry tracing backend for rasuvaeff/yii3-telemetry (Yii3)",
+    "license": "BSD-3-Clause",
+    "type": "library",
+    "keywords": [
+        "opentelemetry",
+        "otel",
+        "tracing",
+        "observability",
+        "yii3",
+        "backend"
+    ],
+    "authors": [
+        {
+            "name": "Victor Razuvaev",
+            "email": "rasuvaeff@gmail.com"
+        }
+    ],
+    "homepage": "https://github.com/rasuvaeff/yii3-telemetry-otel",
+    "support": {
+        "issues": "https://github.com/rasuvaeff/yii3-telemetry-otel/issues",
+        "source": "https://github.com/rasuvaeff/yii3-telemetry-otel"
+    },
+    "require": {
+        "php": "8.3 - 8.5",
+        "open-telemetry/api": "^1.5",
+        "open-telemetry/context": "^1.5",
+        "open-telemetry/exporter-otlp": "^1.0",
+        "open-telemetry/sdk": "^1.7",
+        "psr/http-message": "^2.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-server-middleware": "^1.0",
+        "rasuvaeff/yii3-telemetry": "^1.0"
+    },
+    "require-dev": {
+        "ergebnis/composer-normalize": "^2.51",
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "guzzlehttp/guzzle": "^7.8",
+        "infection/infection": "^0.33",
+        "maglnet/composer-require-checker": "^4.17",
+        "nyholm/psr7": "^1.8",
+        "rector/rector": "^2.4",
+        "roave/backward-compatibility-check": "^8.0",
+        "testo/bridge-infection": "^0.1.6",
+        "testo/testo": "^0.10.25",
+        "vimeo/psalm": "^6.16"
+    },
+    "suggest": {
+        "ext-protobuf": "Faster OTLP protobuf serialization (pure-PHP google/protobuf is the fallback)",
+        "guzzlehttp/guzzle": "PSR-18 HTTP client for the OTLP/HTTP transport",
+        "open-telemetry/exporter-otlp": "OTLP exporter to ship spans to an OpenTelemetry Collector",
+        "php-http/discovery": "PSR-18/PSR-17 discovery used by the OTLP/HTTP transport"
+    },
+    "repositories": [
+        {
+            "name": "telemetry",
+            "type": "path",
+            "url": "/repo/yii3-telemetry",
+            "options": {
+                "versions": {
+                    "rasuvaeff/yii3-telemetry": "1.0.0"
+                }
+            }
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Rasuvaeff\\Yii3TelemetryOtel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Rasuvaeff\\Yii3TelemetryOtel\\Benchmarks\\": "benchmarks/",
+            "Rasuvaeff\\Yii3TelemetryOtel\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "ergebnis/composer-normalize": true,
+            "infection/extension-installer": true,
+            "tbachert/spi": true
+        },
+        "platform": {
+            "ext-bcmath": "1.0.0",
+            "ext-intl": "1.0.0"
+        },
+        "sort-packages": true
+    },
+    "extra": {
+        "config-plugin": {
+            "di": "di.php",
+            "di-web": "di-web.php",
+            "params": "params.php"
+        },
+        "config-plugin-options": {
+            "source-directory": "config"
+        }
+    },
+    "scripts": {
+        "bc-check": "roave-backward-compatibility-check",
+        "bench": "testo --suite=Benchmarks -vv",
+        "build": [
+            "@composer validate --strict",
+            "@composer normalize --dry-run",
+            "@require-checker",
+            "@cs",
+            "@psalm",
+            "@test"
+        ],
+        "cs": "php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.php",
+        "cs:fix": "php-cs-fixer fix --diff --config=.php-cs-fixer.php",
+        "mutation": "infection --threads=max",
+        "psalm": "psalm --no-cache",
+        "rector": "rector process --dry-run",
+        "rector:fix": "rector process",
+        "release-check": [
+            "@build",
+            "@rector",
+            "@bc-check"
+        ],
+        "require-checker": "composer-require-checker check composer.json",
+        "test": "testo --suite=Unit",
+        "test:coverage": "testo --suite=Unit --coverage --coverage-clover=build/coverage.xml",
+        "test:coverage:ci": "testo --suite=Unit --coverage-clover=build/coverage.xml"
+    }
+}

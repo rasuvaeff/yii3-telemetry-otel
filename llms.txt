@@ -1,0 +1,76 @@
+# rasuvaeff/yii3-telemetry-otel
+
+OpenTelemetry traces backend for `rasuvaeff/yii3-telemetry`. Adapts the core
+`Tracer` facade onto the OTel SDK, exports OTLP, PSR-15 root-span middleware,
+W3C propagation. Namespace `Rasuvaeff\Yii3TelemetryOtel`.
+
+## Install
+
+```bash
+composer require rasuvaeff/yii3-telemetry-otel guzzlehttp/guzzle
+```
+
+Needs a PSR-18 client (guzzle) for OTLP export.
+
+## Rules
+
+- Installing this package binds the swappable core `TracerProviderInterface =>
+  OtelTracerProvider`. Do NOT also bind it (or `Tracer`/core `TracerInterface`)
+  in the app — `yiisoft/config` `Duplicate key`.
+- Frozen `trace()` contract (from core): success keeps status Unset (never Ok);
+  exception → recordException + status Error + end + rethrow; nested inherits
+  parent traceId; `end()`/detach in `finally` (anti-leak). Flush is separate
+  (`SpanFlusher`), never per request.
+- Attribute keys are stable OTel semconv string literals (no sem-conv dep).
+- Env: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+## API
+
+### Provider / tracer (core-facing)
+
+```php
+use Rasuvaeff\Yii3TelemetryOtel\{OtelTracerProvider, OtelTracerProviderFactory, OtlpExporterFactory};
+
+$exporter    = (new OtlpExporterFactory())->create('http://collector:4318'); // OTLP/HTTP
+$sdkProvider = (new OtelTracerProviderFactory(serviceName: 'app', batch: true))->create($exporter);
+$tracer      = (new OtelTracerProvider($sdkProvider))->getTracer();           // core TracerInterface
+
+$tracer->trace('op', static fn ($span) => $span->setAttribute('k', 'v'));
+```
+
+`OtelTracerProviderFactory::create(SpanExporterInterface)` — batch processor by
+default; `batch: false` = SimpleSpanProcessor (immediate, for tests).
+`OtlpExporterFactory::create(string $endpoint = 'http://localhost:4318', string $contentType = 'application/x-protobuf')`.
+
+### Middleware (PSR-15)
+
+```php
+use Rasuvaeff\Yii3TelemetryOtel\{OtelMiddleware, TraceContextExtractor};
+
+$mw = new OtelMiddleware($tracer, new TraceContextExtractor());
+// opens a SERVER span "METHOD /path", extracts incoming traceparent, sets
+// http.* attributes, marks 5xx as Error, ends span + detaches scope in finally.
+```
+
+### Propagation
+
+```php
+use Rasuvaeff\Yii3TelemetryOtel\{TraceContextExtractor, TraceContextInjector};
+
+$otelContext = (new TraceContextExtractor())->extract($serverRequest); // OTel ContextInterface (activate it)
+$request     = (new TraceContextInjector())->inject($clientRequest);   // adds traceparent from active span
+```
+
+### Flush (long-running)
+
+```php
+use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
+
+(new SpanFlusher($sdkProvider))->flush(); // forceFlush(); call on worker stop / timer, not per request
+```
+
+### Testing
+
+Use `OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter` + `batch: false`, then
+assert `$exporter->getSpans()[0]` fields (getName/getKind/getStatus/getAttributes/
+getEvents/getResource).

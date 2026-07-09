@@ -1,0 +1,73 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Rasuvaeff\Yii3TelemetryOtel;
+
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
+use Psr\Http\Server\RequestHandlerInterface;
+use Rasuvaeff\Yii3Telemetry\SpanInterface;
+use Rasuvaeff\Yii3Telemetry\SpanStatusCode;
+use Rasuvaeff\Yii3Telemetry\TraceKind;
+use Rasuvaeff\Yii3Telemetry\TracerInterface;
+
+/**
+ * PSR-15 middleware that opens a SERVER root span for each request. It extracts
+ * the incoming W3C context (so the span continues a distributed trace), records
+ * HTTP attributes, marks 5xx responses as errors, and always ends the span and
+ * detaches the context — the anti-leak guarantee for long-running workers.
+ *
+ * Flushing the exporter is a separate concern (see {@see SpanFlusher}); it must
+ * not happen per request.
+ *
+ * @api
+ */
+final readonly class OtelMiddleware implements MiddlewareInterface
+{
+    private const int SERVER_ERROR_THRESHOLD = 500;
+
+    // OTel HTTP semantic-convention attribute names (stable string keys).
+    private const string ATTR_REQUEST_METHOD = 'http.request.method';
+    private const string ATTR_RESPONSE_STATUS = 'http.response.status_code';
+    private const string ATTR_URL_PATH = 'url.path';
+    private const string ATTR_SERVER_ADDRESS = 'server.address';
+
+    public function __construct(
+        private TracerInterface $tracer,
+        private TraceContextExtractor $extractor = new TraceContextExtractor(),
+    ) {}
+
+    #[\Override]
+    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+    {
+        $scope = $this->extractor->extract($request)->activate();
+
+        try {
+            return $this->tracer->trace(
+                name: $request->getMethod() . ' ' . $request->getUri()->getPath(),
+                callback: static function (SpanInterface $span) use ($request, $handler): ResponseInterface {
+                    $response = $handler->handle($request);
+                    $status = $response->getStatusCode();
+
+                    $span->setAttribute(self::ATTR_RESPONSE_STATUS, $status);
+
+                    if ($status >= self::SERVER_ERROR_THRESHOLD) {
+                        $span->setStatus(SpanStatusCode::Error, 'HTTP ' . $status);
+                    }
+
+                    return $response;
+                },
+                attributes: [
+                    self::ATTR_REQUEST_METHOD => $request->getMethod(),
+                    self::ATTR_URL_PATH => $request->getUri()->getPath(),
+                    self::ATTR_SERVER_ADDRESS => $request->getUri()->getHost(),
+                ],
+                traceKind: TraceKind::Server,
+            );
+        } finally {
+            $scope->detach();
+        }
+    }
+}

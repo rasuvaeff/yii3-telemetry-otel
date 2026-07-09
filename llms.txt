@@ -22,7 +22,9 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   parent traceId; `end()`/detach in `finally` (anti-leak). Flush is separate
   (`SpanFlusher`), never per request.
 - Attribute keys are stable OTel semconv string literals (no sem-conv dep).
-- Env: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- Env: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`; sampling via
+  `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` (default `parentbased_always_on`),
+  or pass `sampler:` to `OtelTracerProviderFactory` explicitly.
 
 ## API
 
@@ -66,7 +68,12 @@ $request     = (new TraceContextInjector())->inject($clientRequest);   // adds t
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
 
-(new SpanFlusher($sdkProvider))->flush(); // forceFlush(); call on worker stop / timer, not per request
+$flusher = new SpanFlusher($sdkProvider); // forceFlush()
+// RoadRunner/Swoole: on worker stop / a timer — never per request.
+// php-fpm / CLI: no worker-shutdown hook exists; register once at bootstrap
+// (runs at the END of each request — accept it, or use batch: false):
+register_shutdown_function(static fn (): bool => $flusher->flush());
+// No flush registered + batch processor = buffered spans LOST on fpm worker recycle.
 ```
 
 ### Testing

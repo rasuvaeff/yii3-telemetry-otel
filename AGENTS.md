@@ -41,7 +41,12 @@ The middleware lives in `config/di-web.php` (web-only).
    span keeps status Unset — do NOT set Ok. On a thrown exception:
    `recordException` + status Error + `end()` in `finally` + re-throw. `end()`
    and context detach always run in `finally` (the long-running anti-leak
-   guarantee). Flushing is separate (`SpanFlusher`), never per request.
+   guarantee). Flushing is separate (`SpanFlusher`); on long-running runtimes
+   never per request — but on **php-fpm a per-request shutdown flush (or
+   `batch: false`) is the only correct option**: there is no user-land
+   worker-shutdown hook and `new TracerProvider()` registers no automatic
+   flush, so batch-buffered spans die with the worker. Keep the README's
+   per-runtime table in sync with this.
 4. **Preserve the public contract.** Update README + tests with any API change.
 
 ## Local build & the path-repo / publish trap
@@ -93,6 +98,10 @@ docker run --rm -v "$REPO":/repo -w /repo/yii3-telemetry-otel composer:2 \
   is `false`.
 - Attribute keys use stable OTel semantic-convention **string literals** (no
   `open-telemetry/sem-conv` dependency — that class is deprecated).
+- **Sampling**: `OtelTracerProviderFactory` defaults to the SDK `SamplerFactory`
+  (honours `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`, default
+  `parentbased_always_on`); an explicit `sampler:` argument overrides it. Do not
+  hardcode a sampler in `config/di.php` — env is the configuration surface.
 - Integration tests (`tests/Integration`, an OTLP Collector round-trip) are
   env-gated on `OTEL_COLLECTOR_HOST` and skipped otherwise.
 - Code: `declare(strict_types=1)`, `final readonly class`, `#[\Override]`,

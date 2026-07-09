@@ -154,6 +154,19 @@ final class OtelTracerTest
         Assert::count($exporter->getSpans(), 0);
     }
 
+    public function factoryAcceptsExplicitSampler(): void
+    {
+        $exporter = new InMemoryExporter(new \ArrayObject());
+        $provider = (new OtelTracerProviderFactory(batch: false, sampler: new AlwaysOffSampler()))
+            ->create($exporter);
+        $tracer = (new OtelTracerProvider($provider))->getTracer();
+
+        $result = $tracer->trace('op', static fn(): string => 'ran');
+
+        Assert::same($result, 'ran');
+        Assert::count($exporter->getSpans(), 0);
+    }
+
     public function emptySpanNameFallsBackToUnnamed(): void
     {
         $this->tracer->trace('', static fn(): null => null);

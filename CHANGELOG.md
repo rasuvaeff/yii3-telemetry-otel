@@ -20,3 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `OtelTracer::startSpan()` — a manual (non-activated) OTel span for split
   begin/end instrumentation, backing the core `TracerInterface::startSpan()`.
 - `yiisoft/config` wiring: binds only the core `TracerProviderInterface`.
+- `OtelTracerProviderFactory` accepts an explicit sampler; by default the SDK
+  `SamplerFactory` applies (`OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`,
+  falling back to `parentbased_always_on`).
+- Per-runtime flush recipes documented (php-fpm has no worker-shutdown hook —
+  register a per-request shutdown flush or use `batch: false`).

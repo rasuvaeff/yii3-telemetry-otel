@@ -53,6 +53,21 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 Add `OtelMiddleware` to your middleware stack (typically first) so every request
 gets a SERVER root span that continues any incoming distributed trace.
 
+### Sampling
+
+The provider uses the SDK sampler configuration — the standard OTel env vars:
+
+```bash
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1   # keep 10% of new traces
+```
+
+Unset, it defaults to `parentbased_always_on` (trace everything, honour the
+incoming decision). To hardcode a sampler instead, pass it to the factory:
+`new OtelTracerProviderFactory(serviceName: '...', sampler: new AlwaysOffSampler())`.
+A dropped trace still runs your callback — `$span` is simply non-recording (the
+frozen core contract).
+
 ### Build a provider manually
 
 ```php
@@ -85,18 +100,35 @@ re-throws; nested spans inherit the parent trace id).
 | `TraceContextExtractor` / `TraceContextInjector` | W3C context in / out |
 | `SpanFlusher` | `forceFlush()` for long-running workers |
 
-### Long-running workers
+### Ending spans vs flushing the exporter
 
 Middleware ends the root span in `finally` every request (no span leak). Flushing
-the batch exporter is **separate** — call `SpanFlusher::flush()` on worker
-shutdown or a timer, never per request:
+the batch exporter is **separate**, and the right hook depends on the runtime —
+`new TracerProvider(...)` registers **no** automatic shutdown flush:
+
+| Runtime | Recipe |
+|---|---|
+| **php-fpm** | There is no user-land "worker shutdown" hook — `register_shutdown_function` runs at the **end of every request**. Either accept per-request flushing (`register_shutdown_function([$flusher, 'flush'])` — one OTLP round-trip per request, after the response was sent with `fastcgi_finish_request`), or set `batch: false` (`SimpleSpanProcessor`, export per span). Do NOT skip both: spans buffered in a batch are **lost** when fpm recycles the worker |
+| **RoadRunner** | `SpanFlusher::flush()` on worker stop / every N requests / a timer — never per request |
+| **Swoole / FrankenPHP** | Periodic tick or worker-shutdown callback |
+| **CLI / cron** | `register_shutdown_function([$flusher, 'flush'])` once at bootstrap |
 
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
 
 $flusher = new SpanFlusher($sdkProvider);
-// ... on RoadRunner worker stop / Swoole tick:
-$flusher->flush();
+// php-fpm / CLI:
+register_shutdown_function(static fn (): bool => $flusher->flush());
+// RoadRunner: call $flusher->flush() on worker stop instead.
+```
+
+### Console commands
+
+`OtelMiddleware` is web-only. In console commands open the root span manually and
+make sure a flush is registered (see above):
+
+```php
+$tracer->trace('cron.sync-orders', fn (SpanInterface $span) => $command->run(), traceKind: TraceKind::Internal);
 ```
 
 ## Security

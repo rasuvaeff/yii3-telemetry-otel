@@ -33,6 +33,10 @@ Installing this package binds the swappable `TracerProviderInterface` in the cor
 — the `Tracer` facade now produces exported spans. Do **not** also bind the
 provider yourself (that is a deliberate `yiisoft/config` `Duplicate key` error).
 
+Composer will ask to trust the `php-http/discovery` and `tbachert/spi` plugins
+(transitive OpenTelemetry dependencies) — answer yes, or preconfigure them in
+`config.allow-plugins`.
+
 ## Usage
 
 ### Wire it (yiisoft/config)

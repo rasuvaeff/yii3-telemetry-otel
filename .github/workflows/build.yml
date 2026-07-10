@@ -151,7 +151,7 @@ jobs:
         run: |
           LATEST="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           if [ -n "$LATEST" ]; then
-            composer bc-check -- --from="$LATEST"
+            composer bc-check -- --from="$LATEST" --install-development-dependencies
           else
             echo "No previous tag - skipping BC check"
           fi

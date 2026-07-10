@@ -26,6 +26,11 @@ use Rasuvaeff\Yii3Telemetry\TracerInterface;
  * path is always available in the `url.path` attribute. Wire the router-aware
  * resolver app-side: `RouteNameResolverInterface => CurrentRouteNameResolver`.
  *
+ * `$excludedPaths` skips tracing for exact request paths — typically the
+ * scrape/probe endpoints (`/metrics`, `/health`): Prometheus polling every few
+ * seconds would otherwise flood the tracing backend with identical traces.
+ * Excluded requests pass straight through.
+ *
  * Flushing the exporter is a separate concern (see {@see SpanFlusher}); it must
  * not happen per request.
  *
@@ -42,15 +47,23 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     private const string ATTR_URL_PATH = 'url.path';
     private const string ATTR_SERVER_ADDRESS = 'server.address';
 
+    /**
+     * @param list<string> $excludedPaths exact request paths to skip (e.g. '/metrics')
+     */
     public function __construct(
         private TracerInterface $tracer,
         private TraceContextExtractor $extractor = new TraceContextExtractor(),
         private ?RouteNameResolverInterface $routeResolver = null,
+        private array $excludedPaths = [],
     ) {}
 
     #[\Override]
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        if (\in_array($request->getUri()->getPath(), $this->excludedPaths, true)) {
+            return $handler->handle($request);
+        }
+
         $scope = $this->extractor->extract($request)->activate();
 
         try {

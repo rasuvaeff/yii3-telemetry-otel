@@ -23,6 +23,7 @@ use Rasuvaeff\Yii3TelemetryOtel\OtlpExporterFactory;
 return [
     SpanExporterInterface::class => static fn (OtlpExporterFactory $factory): SpanExporterInterface => $factory->create(
         (string) $params['rasuvaeff/yii3-telemetry-otel']['endpoint'],
+        (string) ($params['rasuvaeff/yii3-telemetry-otel']['content_type'] ?? 'application/x-protobuf'),
     ),
 
     OtelSdkTracerProviderInterface::class => static function (SpanExporterInterface $exporter) use ($params): OtelSdkTracerProviderInterface {

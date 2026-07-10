@@ -58,6 +58,8 @@ Operational toggles in `params.php` (overridable in your app params):
 | Param | Default | Meaning |
 |---|---|---|
 | `enabled` | `true` (honours `OTEL_SDK_DISABLED=true`) | `false` binds the no-op `NullTracerProvider` — nothing is built or exported, no error-log noise from an unreachable collector |
+| `content_type` | `application/x-protobuf` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | OTLP/HTTP payload encoding; some receivers (e.g. Buggregator) only speak JSON cleanly |
+| `excluded_paths` | `[]` | exact request paths `OtelMiddleware` skips — scrape/probe endpoints (`/metrics`, `/health`): Prometheus polling every few seconds floods the tracing backend with identical traces |
 | `batch` | `true` | batch span processor (see flushing below) |
 | `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
 

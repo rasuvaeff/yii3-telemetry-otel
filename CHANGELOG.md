@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `addEvent()` / `startNanos` adapter support (core contract).
 - Params toggles: `enabled` (honours `OTEL_SDK_DISABLED`) binds
   `NullTracerProvider` when off; `register_shutdown_flush` (default `true`)
-  registers a shutdown flush so php-fpm batch spans are never silently lost.
+  registers a shutdown flush so php-fpm batch spans are never silently lost;
+  `content_type` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`, e.g. `http/json` for
+  JSON-only receivers); `excluded_paths` — `OtelMiddleware` skips scrape/probe
+  endpoints so Prometheus polling doesn't flood the tracing backend.
 - OpenTelemetry traces backend for `rasuvaeff/yii3-telemetry`.
 - `OtelTracerProvider` / `OtelTracer` / `OtelSpan` adapt the core facade onto the
   OpenTelemetry SDK (types map field-for-field, no lookup table).

@@ -10,7 +10,16 @@ return [
         'enabled' => !\in_array(strtolower((string) getenv('OTEL_SDK_DISABLED')), ['true', '1', 'on'], true),
         'service_name' => getenv('OTEL_SERVICE_NAME') ?: 'yii3-app',
         'endpoint' => getenv('OTEL_EXPORTER_OTLP_ENDPOINT') ?: 'http://localhost:4318',
+        // OTLP/HTTP payload encoding, mapped from the standard
+        // OTEL_EXPORTER_OTLP_PROTOCOL (http/protobuf | http/json). Some
+        // receivers (e.g. Buggregator) only speak JSON cleanly.
+        'content_type' => (getenv('OTEL_EXPORTER_OTLP_PROTOCOL') ?: 'http/protobuf') === 'http/json'
+            ? 'application/json'
+            : 'application/x-protobuf',
         'batch' => true,
+        // Exact request paths OtelMiddleware skips — scrape/probe endpoints
+        // (Prometheus polls /metrics every few seconds; tracing that is noise).
+        'excluded_paths' => [],
         // Registers a shutdown flush for the batch processor. Correct default
         // everywhere: on php-fpm it runs at request end (after
         // fastcgi_finish_request — batch-buffered spans would otherwise be LOST

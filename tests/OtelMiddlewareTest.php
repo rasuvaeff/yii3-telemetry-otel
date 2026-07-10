@@ -147,6 +147,23 @@ final class OtelMiddlewareTest
         Assert::false($span->getAttributes()->has('http.route'));
     }
 
+    public function excludedPathIsNotTraced(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            excludedPaths: ['/metrics'],
+        );
+
+        $response = $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/metrics'),
+            $this->handler(200),
+        );
+
+        Assert::same($response->getStatusCode(), 200);
+        Assert::count($this->exporter->getSpans(), 0);
+    }
+
     private function resolver(?string $route): RouteNameResolverInterface
     {
         return new readonly class ($route) implements RouteNameResolverInterface {

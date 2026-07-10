@@ -80,14 +80,24 @@ final class ConfigWiringTest
         Assert::true($config['enabled']);
         Assert::true($config['register_shutdown_flush']);
         Assert::true($config['batch']);
+        Assert::same($config['content_type'], 'application/x-protobuf');
+        Assert::same($config['excluded_paths'], []);
     }
 
-    public function webConfigBindsTheMiddleware(): void
+    public function webConfigBindsTheMiddlewareWithExcludedPaths(): void
     {
+        /** @var array<string, mixed> $params */
+        $params = require dirname(__DIR__) . '/config/params.php';
+        $params['rasuvaeff/yii3-telemetry-otel']['excluded_paths'] = ['/metrics'];
+
         /** @var array<string, mixed> $di */
-        $di = require dirname(__DIR__) . '/config/di-web.php';
+        $di = (static fn(array $params): array => require dirname(__DIR__) . '/config/di-web.php')($params);
 
         Assert::array($di)->hasKeys(OtelMiddleware::class);
+
+        /** @var array{__construct(): array{excludedPaths: mixed}} $definition */
+        $definition = $di[OtelMiddleware::class];
+        Assert::same($definition['__construct()']['excludedPaths'], ['/metrics']);
     }
 
     public function paramsAreNamespaced(): void

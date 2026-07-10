@@ -29,7 +29,9 @@ Needs a PSR-18 client (guzzle) for OTLP export.
 - Params toggles: `enabled` (default true), `batch` (true),
   `register_shutdown_flush` (true — DI registers a shutdown flush; required on
   php-fpm or batch-buffered spans are lost; disable on RR/Swoole when flushing
-  via SpanFlusher on a timer).
+  via SpanFlusher on a timer), `content_type` (protobuf default; honours
+  OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
+  OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise).
 
 ## API
 

@@ -31,7 +31,10 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   php-fpm or batch-buffered spans are lost; disable on RR/Swoole when flushing
   via SpanFlusher on a timer), `content_type` (protobuf default; honours
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
-  OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise).
+  OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise),
+  `capture_query` (true — url.query attr, sensitive values masked '***'),
+  `capture_request_params` (false, OPT-IN — query/form/JSON-body params as
+  http.request.param.<name>, masked + truncated 200 chars, bodies ≤ 8 KiB).
 
 ## API
 

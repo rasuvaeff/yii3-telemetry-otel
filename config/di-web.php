@@ -14,6 +14,8 @@ return [
         'class' => OtelMiddleware::class,
         '__construct()' => [
             'excludedPaths' => (array) ($params['rasuvaeff/yii3-telemetry-otel']['excluded_paths'] ?? []),
+            'captureQuery' => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['capture_query'] ?? true),
+            'captureRequestParams' => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['capture_request_params'] ?? false),
         ],
     ],
 ];

@@ -60,6 +60,8 @@ Operational toggles in `params.php` (overridable in your app params):
 | `enabled` | `true` (honours `OTEL_SDK_DISABLED=true`) | `false` binds the no-op `NullTracerProvider` — nothing is built or exported, no error-log noise from an unreachable collector |
 | `content_type` | `application/x-protobuf` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | OTLP/HTTP payload encoding; some receivers (e.g. Buggregator) only speak JSON cleanly |
 | `excluded_paths` | `[]` | exact request paths `OtelMiddleware` skips — scrape/probe endpoints (`/metrics`, `/health`): Prometheus polling every few seconds floods the tracing backend with identical traces |
+| `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level |
+| `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
 | `batch` | `true` | batch span processor (see flushing below) |
 | `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
 

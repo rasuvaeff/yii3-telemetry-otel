@@ -164,6 +164,74 @@ final class OtelMiddlewareTest
         Assert::count($this->exporter->getSpans(), 0);
     }
 
+    public function recordsRedactedUrlQueryByDefault(): void
+    {
+        $this->middleware()->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/users?page=2&api_token=hunter2'),
+            $this->handler(200),
+        );
+
+        $span = $this->onlySpan();
+        Assert::same($span->getAttributes()->get('url.query'), 'page=2&api_token=%2A%2A%2A');
+    }
+
+    public function capturesRequestParamsWithMaskingWhenOptedIn(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureRequestParams: true,
+        );
+
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/login?redirect=/home')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($this->factory->createStream('{"email":"a@b.c","password":"hunter2","profile":{"card":"4111","name":"Ann"}}'));
+
+        $middleware->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.email'), 'a@b.c');
+        Assert::same($attributes->get('http.request.param.password'), '***');
+        // Nested sensitive keys inside array values are masked before serialization.
+        Assert::same($attributes->get('http.request.param.profile'), '{"card":"***","name":"Ann"}');
+    }
+
+    public function queryParamsAreCapturedAndFormBodyPreferred(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureRequestParams: true,
+        );
+
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/search')
+            ->withQueryParams(['q' => 'phones', 'page' => 3])
+            ->withParsedBody(['q' => 'ignored-duplicate', 'sort' => 'price']);
+
+        $middleware->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.q'), 'phones'); // query wins over body
+        Assert::same($attributes->get('http.request.param.page'), '3');
+        Assert::same($attributes->get('http.request.param.sort'), 'price');
+    }
+
+    public function captureQueryCanBeDisabled(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureQuery: false,
+        );
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/users?page=2'),
+            $this->handler(200),
+        );
+
+        Assert::false($this->onlySpan()->getAttributes()->has('url.query'));
+    }
+
     private function resolver(?string $route): RouteNameResolverInterface
     {
         return new readonly class ($route) implements RouteNameResolverInterface {

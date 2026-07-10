@@ -20,6 +20,12 @@ return [
         // Exact request paths OtelMiddleware skips — scrape/probe endpoints
         // (Prometheus polls /metrics every few seconds; tracing that is noise).
         'excluded_paths' => [],
+        // url.query attribute on the root span (sensitive values masked).
+        'capture_query' => true,
+        // Opt-in: query/form/JSON-body params as http.request.param.* attributes
+        // (sensitive keys masked, values truncated). Off by default — request
+        // payloads may carry personal data; enable consciously.
+        'capture_request_params' => false,
         // Registers a shutdown flush for the batch processor. Correct default
         // everywhere: on php-fpm it runs at request end (after
         // fastcgi_finish_request — batch-buffered spans would otherwise be LOST

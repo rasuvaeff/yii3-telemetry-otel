@@ -82,6 +82,8 @@ final class ConfigWiringTest
         Assert::true($config['batch']);
         Assert::same($config['content_type'], 'application/x-protobuf');
         Assert::same($config['excluded_paths'], []);
+        Assert::true($config['capture_query']);
+        Assert::false($config['capture_request_params']);
     }
 
     public function webConfigBindsTheMiddlewareWithExcludedPaths(): void

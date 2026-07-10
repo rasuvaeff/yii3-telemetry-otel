@@ -31,6 +31,14 @@ use Rasuvaeff\Yii3Telemetry\TracerInterface;
  * seconds would otherwise flood the tracing backend with identical traces.
  * Excluded requests pass straight through.
  *
+ * Request data on the span:
+ * - `$captureQuery` (default on) records `url.query` with the values of
+ *   sensitive-looking keys (`password`, `token`, …) replaced by `***`;
+ * - `$captureRequestParams` (default OFF — opt in consciously) records each
+ *   query / form / top-level JSON-body parameter as
+ *   `http.request.param.<name>`, sensitive keys masked, values truncated.
+ *   Bodies larger than 8 KiB or non-seekable streams are skipped.
+ *
  * Flushing the exporter is a separate concern (see {@see SpanFlusher}); it must
  * not happen per request.
  *
@@ -45,16 +53,28 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     private const string ATTR_RESPONSE_STATUS = 'http.response.status_code';
     private const string ATTR_HTTP_ROUTE = 'http.route';
     private const string ATTR_URL_PATH = 'url.path';
+    private const string ATTR_URL_QUERY = 'url.query';
     private const string ATTR_SERVER_ADDRESS = 'server.address';
+    private const string PARAM_ATTR_PREFIX = 'http.request.param.';
+
+    private const array SENSITIVE_KEY_NEEDLES = ['password', 'passwd', 'secret', 'token', 'api_key', 'apikey', 'authorization', 'credential', 'card'];
+    private const string MASK = '***';
+    private const int MAX_PARAM_VALUE_LENGTH = 200;
+    private const int MAX_JSON_BODY_BYTES = 8192;
 
     /**
      * @param list<string> $excludedPaths exact request paths to skip (e.g. '/metrics')
+     * @param bool $captureQuery record `url.query` (sensitive values masked)
+     * @param bool $captureRequestParams record query/form/JSON-body parameters as
+     *        `http.request.param.<name>` attributes (masked + truncated)
      */
     public function __construct(
         private TracerInterface $tracer,
         private TraceContextExtractor $extractor = new TraceContextExtractor(),
         private ?RouteNameResolverInterface $routeResolver = null,
         private array $excludedPaths = [],
+        private bool $captureQuery = true,
+        private bool $captureRequestParams = false,
     ) {}
 
     #[\Override]
@@ -93,11 +113,158 @@ final readonly class OtelMiddleware implements MiddlewareInterface
                     self::ATTR_REQUEST_METHOD => $request->getMethod(),
                     self::ATTR_URL_PATH => $request->getUri()->getPath(),
                     self::ATTR_SERVER_ADDRESS => $request->getUri()->getHost(),
+                    ...$this->requestDataAttributes($request),
                 ],
                 traceKind: TraceKind::Server,
             );
         } finally {
             $scope->detach();
         }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function requestDataAttributes(ServerRequestInterface $request): array
+    {
+        $attributes = [];
+        $query = $request->getUri()->getQuery();
+
+        if ($this->captureQuery && $query !== '') {
+            $attributes[self::ATTR_URL_QUERY] = $this->redactedQuery($query);
+        }
+
+        if ($this->captureRequestParams) {
+            /** @var mixed $value */
+            foreach ($this->requestParams($request) as $name => $value) {
+                $attributes[self::PARAM_ATTR_PREFIX . $name] = $this->isSensitiveKey($name)
+                    ? self::MASK
+                    : $this->stringifyParam($value);
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * Query params + form params + top-level JSON-body params, in that
+     * precedence order (later sources do not overwrite earlier names).
+     *
+     * @return array<string, mixed>
+     */
+    private function requestParams(ServerRequestInterface $request): array
+    {
+        $params = self::stringKeyed($request->getQueryParams());
+        $parsed = $request->getParsedBody();
+
+        if (\is_array($parsed)) {
+            return $params + self::stringKeyed($parsed);
+        }
+
+        if (str_contains(strtolower($request->getHeaderLine('Content-Type')), 'json')) {
+            $params += $this->jsonBodyParams($request);
+        }
+
+        return $params;
+    }
+
+    /**
+     * @param array<array-key, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    private static function stringKeyed(array $data): array
+    {
+        return array_combine(array_map(strval(...), array_keys($data)), array_values($data));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function jsonBodyParams(ServerRequestInterface $request): array
+    {
+        $body = $request->getBody();
+        $size = $body->getSize();
+
+        if (!$body->isSeekable() || $size === null || $size === 0 || $size > self::MAX_JSON_BODY_BYTES) {
+            return [];
+        }
+
+        $body->rewind();
+        $decoded = json_decode($body->getContents(), true);
+        $body->rewind();
+
+        if (!\is_array($decoded)) {
+            return [];
+        }
+
+        return self::stringKeyed($decoded);
+    }
+
+    private function redactedQuery(string $query): string
+    {
+        parse_str($query, $pairs);
+
+        return http_build_query($this->maskSensitive($pairs));
+    }
+
+    /**
+     * Recursively replaces the values of sensitive-looking keys at every level.
+     *
+     * @param array<array-key, mixed> $data
+     *
+     * @return array<array-key, mixed>
+     */
+    private function maskSensitive(array $data): array
+    {
+        /** @var mixed $value */
+        foreach ($data as $key => $value) {
+            if (\is_string($key) && $this->isSensitiveKey($key)) {
+                $data[$key] = self::MASK;
+
+                continue;
+            }
+
+            if (\is_array($value)) {
+                $data[$key] = $this->maskSensitive($value);
+            }
+        }
+
+        return $data;
+    }
+
+    private function isSensitiveKey(string $name): bool
+    {
+        $lower = strtolower($name);
+
+        foreach (self::SENSITIVE_KEY_NEEDLES as $needle) {
+            if (str_contains($lower, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function stringifyParam(mixed $value): string
+    {
+        if (\is_string($value)) {
+            $string = $value;
+        } elseif (\is_bool($value)) {
+            $string = $value ? 'true' : 'false';
+        } elseif ($value === null) {
+            $string = 'null';
+        } elseif (\is_scalar($value)) {
+            $string = (string) $value;
+        } else {
+            $encoded = json_encode(\is_array($value) ? $this->maskSensitive($value) : $value, JSON_UNESCAPED_UNICODE);
+            $string = $encoded === false ? '(unserializable)' : $encoded;
+        }
+
+        // Byte-based truncation — may split a multibyte character at the edge,
+        // acceptable for debug attributes (no mb_* runtime dependency).
+        return \strlen($string) > self::MAX_PARAM_VALUE_LENGTH
+            ? substr($string, 0, self::MAX_PARAM_VALUE_LENGTH) . '…'
+            : $string;
     }
 }

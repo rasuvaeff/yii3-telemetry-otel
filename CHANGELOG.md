@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `content_type` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`, e.g. `http/json` for
   JSON-only receivers); `excluded_paths` — `OtelMiddleware` skips scrape/probe
   endpoints so Prometheus polling doesn't flood the tracing backend.
+- Request data on the root span: `url.query` (default on, sensitive values
+  masked recursively) and opt-in `capture_request_params` —
+  `http.request.param.<name>` attributes from query/form/JSON-body parameters
+  (sensitive keys `***`, values truncated, bodies over 8 KiB skipped).
 - OpenTelemetry traces backend for `rasuvaeff/yii3-telemetry`.
 - `OtelTracerProvider` / `OtelTracer` / `OtelSpan` adapt the core facade onto the
   OpenTelemetry SDK (types map field-for-field, no lookup table).

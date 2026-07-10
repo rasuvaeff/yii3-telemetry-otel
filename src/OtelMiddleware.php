@@ -184,15 +184,22 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     private function jsonBodyParams(ServerRequestInterface $request): array
     {
         $body = $request->getBody();
-        $size = $body->getSize();
 
-        if (!$body->isSeekable() || $size === null || $size === 0 || $size > self::MAX_JSON_BODY_BYTES) {
+        if (!$body->isSeekable()) {
             return [];
         }
 
+        // Read with a limit instead of trusting getSize(): real SAPI request
+        // streams (php://input) report a null/0 size while still being readable.
         $body->rewind();
-        $decoded = json_decode($body->getContents(), true);
+        $contents = $body->read(self::MAX_JSON_BODY_BYTES + 1);
         $body->rewind();
+
+        if ($contents === '' || \strlen($contents) > self::MAX_JSON_BODY_BYTES) {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
 
         if (!\is_array($decoded)) {
             return [];

@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Rasuvaeff\Yii3TelemetryOtel\Tests;
 
+use GuzzleHttp\Psr7\StreamDecoratorTrait;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Rasuvaeff\Yii3Telemetry\TraceKind;
 use Rasuvaeff\Yii3Telemetry\TracerInterface;
@@ -194,6 +196,36 @@ final class OtelMiddlewareTest
         Assert::same($attributes->get('http.request.param.password'), '***');
         // Nested sensitive keys inside array values are masked before serialization.
         Assert::same($attributes->get('http.request.param.profile'), '{"card":"***","name":"Ann"}');
+    }
+
+    public function jsonBodyIsCapturedFromANullSizeStream(): void
+    {
+        // Real SAPI request bodies (php://input) report a null size while
+        // remaining seekable and readable — size must not gate the capture.
+        $inner = $this->factory->createStream('{"email":"a@b.c"}');
+        $stream = new class ($inner) implements StreamInterface {
+            use StreamDecoratorTrait;
+
+            #[\Override]
+            public function getSize(): ?int
+            {
+                return null;
+            }
+        };
+
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureRequestParams: true,
+        );
+
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($stream);
+
+        $middleware->process($request, $this->handler(200));
+
+        Assert::same($this->onlySpan()->getAttributes()->get('http.request.param.email'), 'a@b.c');
     }
 
     public function queryParamsAreCapturedAndFormBodyPreferred(): void

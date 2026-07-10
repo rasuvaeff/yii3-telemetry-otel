@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `yiisoft/yii-console` Startup/Shutdown events (activated: instrumentation
   spans become children; cron jobs stop flooding the backend with root-less
   `db.query` traces; non-zero exit code → Error).
+- `finish_request_before_flush` (default `true`): the shutdown hook calls
+  `fastcgi_finish_request()` before flushing, so the client never waits for
+  the OTLP export round-trip (measured ~+100 ms per request without it).
 - Request data on the root span: `url.query` (default on, sensitive values
   masked recursively) and opt-in `capture_request_params` —
   `http.request.param.<name>` attributes from query/form/JSON-body parameters

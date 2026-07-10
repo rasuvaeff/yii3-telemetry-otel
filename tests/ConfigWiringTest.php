@@ -88,6 +88,7 @@ final class ConfigWiringTest
         Assert::same($config['content_type'], 'application/x-protobuf');
         Assert::same($config['excluded_paths'], []);
         Assert::true($config['capture_query']);
+        Assert::true($config['finish_request_before_flush']);
         Assert::false($config['capture_request_params']);
     }
 

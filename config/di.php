@@ -36,8 +36,17 @@ return [
 
         // `new TracerProvider(...)` registers NO automatic shutdown flush; on
         // php-fpm batch-buffered spans die with the worker without this hook.
+        // fastcgi_finish_request() first: without it the client WAITS for the
+        // OTLP export round-trip (measured ~+100ms per request) — Yii3's SAPI
+        // emitter does not finish the request itself.
         if ((bool) ($config['register_shutdown_flush'] ?? true)) {
-            register_shutdown_function(static function () use ($provider): void {
+            $finishRequest = (bool) ($config['finish_request_before_flush'] ?? true);
+
+            register_shutdown_function(static function () use ($provider, $finishRequest): void {
+                if ($finishRequest && \function_exists('fastcgi_finish_request')) {
+                    fastcgi_finish_request();
+                }
+
                 $provider->shutdown();
             });
         }

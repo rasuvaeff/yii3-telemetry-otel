@@ -64,6 +64,7 @@ Operational toggles in `params.php` (overridable in your app params):
 | `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
 | `batch` | `true` | batch span processor (see flushing below) |
 | `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
+| `finish_request_before_flush` | `true` | calls `fastcgi_finish_request()` before the flush, so the client never waits for the OTLP round-trip (~100 ms measured without it — Yii3's SAPI emitter does not finish the request itself). Disable only if other shutdown functions still write to the response |
 
 ### Span names & `http.route`
 

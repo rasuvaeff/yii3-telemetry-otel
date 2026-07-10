@@ -33,5 +33,10 @@ return [
         // exit. Set to false on RoadRunner/Swoole when flushing via SpanFlusher
         // on a timer / worker-stop hook instead.
         'register_shutdown_flush' => true,
+        // Send the response to the client BEFORE the shutdown flush
+        // (fastcgi_finish_request) — otherwise the client waits for the OTLP
+        // export round-trip. Disable only if other shutdown functions of your
+        // app still write to the response body.
+        'finish_request_before_flush' => true,
     ],
 ];

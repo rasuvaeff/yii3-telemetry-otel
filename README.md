@@ -53,6 +53,37 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 Add `OtelMiddleware` to your middleware stack (typically first) so every request
 gets a SERVER root span that continues any incoming distributed trace.
 
+Operational toggles in `params.php` (overridable in your app params):
+
+| Param | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` (honours `OTEL_SDK_DISABLED=true`) | `false` binds the no-op `NullTracerProvider` — nothing is built or exported, no error-log noise from an unreachable collector |
+| `batch` | `true` | batch span processor (see flushing below) |
+| `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
+
+### Span names & `http.route`
+
+Span naming follows the OTel HTTP semconv: `{method} {route}` with a route
+template (`GET /users/{id}`), plain `{method}` otherwise — never the raw path
+(one span name per user id would wreck operation search in Tempo/Jaeger; the
+raw path is always in the `url.path` attribute). Wire the router-aware resolver
+app-side (it needs `yiisoft/router`, which is optional):
+
+```php
+// config/common/di.php
+use Rasuvaeff\Yii3TelemetryOtel\CurrentRouteNameResolver;
+use Rasuvaeff\Yii3TelemetryOtel\RouteNameResolverInterface;
+
+return [
+    RouteNameResolverInterface::class => CurrentRouteNameResolver::class,
+];
+```
+
+`CurrentRouteNameResolver` reads the matched `yiisoft/router` pattern after the
+handler ran, so the tracing middleware can stay first in the stack. Unmatched
+requests (404s, scanners) keep the bare `{method}` name. A custom resolver is a
+one-method interface: `resolve(ServerRequestInterface): ?string`.
+
 ### Sampling
 
 The provider uses the SDK sampler configuration — the standard OTel env vars:
@@ -96,6 +127,7 @@ re-throws; nested spans inherit the parent trace id).
 | `OtelTracer` / `OtelSpan` | adapters: core facade → OTel span |
 | `OtelTracerProviderFactory` | builds an SDK `TracerProvider` from an exporter (batch by default) |
 | `OtlpExporterFactory` | builds the OTLP/HTTP span exporter |
+| `RouteNameResolverInterface` / `CurrentRouteNameResolver` | route-template span names (`{method} {route}`) — see above |
 | `OtelMiddleware` | PSR-15 SERVER root span + incoming-context extraction |
 | `TraceContextExtractor` / `TraceContextInjector` | W3C context in / out |
 | `SpanFlusher` | `forceFlush()` for long-running workers |
@@ -103,15 +135,15 @@ re-throws; nested spans inherit the parent trace id).
 ### Ending spans vs flushing the exporter
 
 Middleware ends the root span in `finally` every request (no span leak). Flushing
-the batch exporter is **separate**, and the right hook depends on the runtime —
-`new TracerProvider(...)` registers **no** automatic shutdown flush:
+the batch exporter is **separate** — `new TracerProvider(...)` registers **no**
+automatic shutdown flush, so with `register_shutdown_flush: true` (the default)
+the DI wiring registers one for you:
 
-| Runtime | Recipe |
+| Runtime | With the default `register_shutdown_flush: true` |
 |---|---|
-| **php-fpm** | There is no user-land "worker shutdown" hook — `register_shutdown_function` runs at the **end of every request**. Either accept per-request flushing (`register_shutdown_function([$flusher, 'flush'])` — one OTLP round-trip per request, after the response was sent with `fastcgi_finish_request`), or set `batch: false` (`SimpleSpanProcessor`, export per span). Do NOT skip both: spans buffered in a batch are **lost** when fpm recycles the worker |
-| **RoadRunner** | `SpanFlusher::flush()` on worker stop / every N requests / a timer — never per request |
-| **Swoole / FrankenPHP** | Periodic tick or worker-shutdown callback |
-| **CLI / cron** | `register_shutdown_function([$flusher, 'flush'])` once at bootstrap |
+| **php-fpm** | The hook runs at the **end of every request**, after the response was sent with `fastcgi_finish_request` — one OTLP round-trip per request. That is the only correct option on fpm: there is no user-land worker-shutdown hook, and batch-buffered spans are otherwise **lost** when fpm recycles the worker. (`batch: false` / `SimpleSpanProcessor` is the alternative: export per span) |
+| **RoadRunner / Swoole / FrankenPHP** | The hook fires once at worker exit — safe, but consider `register_shutdown_flush: false` + `SpanFlusher::flush()` on a timer / every N requests, so a crash loses at most one interval |
+| **CLI / cron** | The hook fires once at process exit — exactly right |
 
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;

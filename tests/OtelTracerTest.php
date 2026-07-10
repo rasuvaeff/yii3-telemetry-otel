@@ -167,6 +167,37 @@ final class OtelTracerTest
         Assert::count($exporter->getSpans(), 0);
     }
 
+    public function addEventReachesTheExportedSpan(): void
+    {
+        $this->tracer->trace('op', static function (SpanInterface $span): void {
+            $span->addEvent('retry', ['attempt' => 2]);
+            $span->addEvent('');  // invalid in OTel; dropped silently
+        });
+
+        $events = $this->onlySpan()->getEvents();
+        Assert::count($events, 1);
+        Assert::same($events[0]->getName(), 'retry');
+        Assert::same($events[0]->getAttributes()->get('attempt'), 2);
+    }
+
+    public function explicitStartNanosBackdatesTheExportedSpan(): void
+    {
+        $startNanos = 1_700_000_000_000_000_000;
+
+        $this->tracer->trace('op', static fn(): null => null, startNanos: $startNanos);
+
+        Assert::same($this->onlySpan()->getStartEpochNanos(), $startNanos);
+    }
+
+    public function startSpanHonoursExplicitStartNanos(): void
+    {
+        $startNanos = 1_700_000_000_000_000_000;
+
+        $this->tracer->startSpan('manual', startNanos: $startNanos)->end();
+
+        Assert::same($this->onlySpan()->getStartEpochNanos(), $startNanos);
+    }
+
     public function emptySpanNameFallsBackToUnnamed(): void
     {
         $this->tracer->trace('', static fn(): null => null);

@@ -47,6 +47,15 @@ final readonly class OtelSpan implements SpanInterface
     }
 
     #[\Override]
+    public function addEvent(string $name, array $attributes = []): void
+    {
+        // An empty event name is invalid in OpenTelemetry; drop it silently.
+        if ($name !== '') {
+            $this->span->addEvent($name, $attributes);
+        }
+    }
+
+    #[\Override]
     public function recordException(\Throwable $exception): void
     {
         $this->span->recordException($exception);

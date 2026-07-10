@@ -41,8 +41,13 @@ final readonly class OtelTracer implements TracerInterface
         array $attributes = [],
         bool $scoped = true,
         TraceKind $traceKind = TraceKind::Internal,
+        ?int $startNanos = null,
     ): mixed {
         $builder = $this->tracer->spanBuilder($name === '' ? 'unnamed' : $name)->setSpanKind($traceKind->value);
+
+        if ($startNanos !== null) {
+            $builder->setStartTimestamp($startNanos);
+        }
 
         foreach ($attributes as $key => $value) {
             $builder->setAttribute($key, $value);
@@ -72,8 +77,13 @@ final readonly class OtelTracer implements TracerInterface
         string $name,
         array $attributes = [],
         TraceKind $traceKind = TraceKind::Internal,
+        ?int $startNanos = null,
     ): SpanInterface {
         $builder = $this->tracer->spanBuilder($name === '' ? 'unnamed' : $name)->setSpanKind($traceKind->value);
+
+        if ($startNanos !== null) {
+            $builder->setStartTimestamp($startNanos);
+        }
 
         foreach ($attributes as $key => $value) {
             $builder->setAttribute($key, $value);

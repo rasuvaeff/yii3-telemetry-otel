@@ -7,6 +7,7 @@ namespace Rasuvaeff\Yii3TelemetryOtel\Tests;
 use OpenTelemetry\API\Trace\TracerProviderInterface as OtelApiTracerProviderInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface as OtelSdkTracerProviderInterface;
+use Rasuvaeff\Yii3Telemetry\NullTracerProvider;
 use Rasuvaeff\Yii3Telemetry\Tracer;
 use Rasuvaeff\Yii3Telemetry\TracerInterface;
 use Rasuvaeff\Yii3Telemetry\TracerProviderInterface;
@@ -38,7 +39,9 @@ final class ConfigWiringTest
 
     public function diFactoryChainResolvesEndToEnd(): void
     {
-        $di = $this->di();
+        // register_shutdown_flush off: the factory chain must not leave a
+        // shutdown hook behind in the test process.
+        $di = $this->di(['register_shutdown_flush' => false]);
 
         // Invoke each factory closure so param-key mismatches or type errors in
         // the exporter → SDK provider → core provider chain surface here (config
@@ -57,6 +60,26 @@ final class ConfigWiringTest
         Assert::instanceOf($coreProvider, OtelTracerProvider::class);
 
         Assert::instanceOf(new Tracer($coreProvider), Tracer::class);
+    }
+
+    public function disabledParamsBindTheNullProvider(): void
+    {
+        $di = $this->di(['enabled' => false]);
+
+        $provider = $di[TracerProviderInterface::class]();
+
+        Assert::instanceOf($provider, NullTracerProvider::class);
+    }
+
+    public function paramsCarryTheOperationalToggles(): void
+    {
+        /** @var array<string, mixed> $params */
+        $params = require dirname(__DIR__) . '/config/params.php';
+        $config = $params['rasuvaeff/yii3-telemetry-otel'];
+
+        Assert::true($config['enabled']);
+        Assert::true($config['register_shutdown_flush']);
+        Assert::true($config['batch']);
     }
 
     public function webConfigBindsTheMiddleware(): void
@@ -78,10 +101,14 @@ final class ConfigWiringTest
     /**
      * @return array<string, mixed>
      */
-    private function di(): array
+    /**
+     * @param array<string, mixed> $overrides package-param overrides
+     */
+    private function di(array $overrides = []): array
     {
         /** @var array<string, mixed> $params */
         $params = require dirname(__DIR__) . '/config/params.php';
+        $params['rasuvaeff/yii3-telemetry-otel'] = $overrides + $params['rasuvaeff/yii3-telemetry-otel'];
 
         /** @var array<string, mixed> $di */
         $di = (static fn(array $params): array => require dirname(__DIR__) . '/config/di.php')($params);

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 1.0.0 — Unreleased
 
+- Semconv span naming: `{method} {http.route}` via `RouteNameResolverInterface`
+  (+ `CurrentRouteNameResolver` for `yiisoft/router`); bare `{method}` fallback —
+  never the raw path. `http.route` attribute on matched routes.
+- `addEvent()` / `startNanos` adapter support (core contract).
+- Params toggles: `enabled` (honours `OTEL_SDK_DISABLED`) binds
+  `NullTracerProvider` when off; `register_shutdown_flush` (default `true`)
+  registers a shutdown flush so php-fpm batch spans are never silently lost.
 - OpenTelemetry traces backend for `rasuvaeff/yii3-telemetry`.
 - `OtelTracerProvider` / `OtelTracer` / `OtelSpan` adapt the core facade onto the
   OpenTelemetry SDK (types map field-for-field, no lookup table).

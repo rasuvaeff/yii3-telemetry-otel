@@ -44,12 +44,15 @@
         "roave/backward-compatibility-check": "^8.0",
         "testo/bridge-infection": "^0.1.6",
         "testo/testo": "^0.10.25",
-        "vimeo/psalm": "^6.16"
+        "vimeo/psalm": "^6.16",
+        "yiisoft/dummy-provider": "^1.1",
+        "yiisoft/router": "^4.0.2"
     },
     "suggest": {
         "ext-protobuf": "Faster OTLP protobuf serialization (pure-PHP google/protobuf is the fallback)",
         "guzzlehttp/guzzle": "PSR-18 HTTP client for the OTLP/HTTP transport",
-        "php-http/discovery": "PSR-18/PSR-17 discovery used by the OTLP/HTTP transport"
+        "php-http/discovery": "PSR-18/PSR-17 discovery used by the OTLP/HTTP transport",
+        "yiisoft/router": "Route-template span names ({method} {route}) via CurrentRouteNameResolver"
     },
     "repositories": [
         {

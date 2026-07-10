@@ -16,6 +16,7 @@ use Rasuvaeff\Yii3Telemetry\TracerInterface;
 use Rasuvaeff\Yii3TelemetryOtel\OtelMiddleware;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
+use Rasuvaeff\Yii3TelemetryOtel\RouteNameResolverInterface;
 use Rasuvaeff\Yii3TelemetryOtel\TraceContextExtractor;
 use Testo\Assert;
 use Testo\Codecov\Covers;
@@ -50,7 +51,9 @@ final class OtelMiddlewareTest
         Assert::same($response->getStatusCode(), 200);
 
         $span = $this->onlySpan();
-        Assert::same($span->getName(), 'GET /users');
+        // No route resolver wired: semconv fallback name is the bare method
+        // (never the raw path — span-name cardinality).
+        Assert::same($span->getName(), 'GET');
         Assert::same($span->getKind(), TraceKind::Server->value);
         Assert::same($span->getAttributes()->get('http.request.method'), 'GET');
         Assert::same($span->getAttributes()->get('url.path'), '/users');
@@ -105,6 +108,56 @@ final class OtelMiddlewareTest
 
         Assert::false(Span::getCurrent()->getContext()->isValid());
         Assert::count($this->exporter->getSpans(), 100);
+    }
+
+    public function namesSpanByRouteTemplateWhenResolved(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            $this->resolver('/users/{id}'),
+        );
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/users/123'),
+            $this->handler(200),
+        );
+
+        $span = $this->onlySpan();
+        Assert::same($span->getName(), 'GET /users/{id}');
+        Assert::same($span->getAttributes()->get('http.route'), '/users/{id}');
+        Assert::same($span->getAttributes()->get('url.path'), '/users/123');
+    }
+
+    public function keepsMethodNameWhenNoRouteMatched(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            $this->resolver(null),
+        );
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/no-route'),
+            $this->handler(404),
+        );
+
+        $span = $this->onlySpan();
+        Assert::same($span->getName(), 'GET');
+        Assert::false($span->getAttributes()->has('http.route'));
+    }
+
+    private function resolver(?string $route): RouteNameResolverInterface
+    {
+        return new readonly class ($route) implements RouteNameResolverInterface {
+            public function __construct(private ?string $route) {}
+
+            #[\Override]
+            public function resolve(ServerRequestInterface $request): ?string
+            {
+                return $this->route;
+            }
+        };
     }
 
     private function middleware(): OtelMiddleware

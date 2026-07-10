@@ -24,7 +24,12 @@ Needs a PSR-18 client (guzzle) for OTLP export.
 - Attribute keys are stable OTel semconv string literals (no sem-conv dep).
 - Env: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`; sampling via
   `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` (default `parentbased_always_on`),
-  or pass `sampler:` to `OtelTracerProviderFactory` explicitly.
+  or pass `sampler:` to `OtelTracerProviderFactory` explicitly. Kill switch:
+  `OTEL_SDK_DISABLED=true` (params `enabled`) binds the no-op NullTracerProvider.
+- Params toggles: `enabled` (default true), `batch` (true),
+  `register_shutdown_flush` (true — DI registers a shutdown flush; required on
+  php-fpm or batch-buffered spans are lost; disable on RR/Swoole when flushing
+  via SpanFlusher on a timer).
 
 ## API
 
@@ -49,9 +54,14 @@ default; `batch: false` = SimpleSpanProcessor (immediate, for tests).
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\{OtelMiddleware, TraceContextExtractor};
 
-$mw = new OtelMiddleware($tracer, new TraceContextExtractor());
-// opens a SERVER span "METHOD /path", extracts incoming traceparent, sets
-// http.* attributes, marks 5xx as Error, ends span + detaches scope in finally.
+$mw = new OtelMiddleware($tracer, new TraceContextExtractor(), $routeResolver);
+// opens a SERVER span named "{method} {route}" (with a RouteNameResolverInterface
+// wired; bare "{method}" otherwise — NEVER the raw path), extracts incoming
+// traceparent, sets http.* attributes (incl. http.route), marks 5xx as Error,
+// ends span + detaches scope in finally.
+
+// Router-aware resolver (needs yiisoft/router; wire app-side):
+//   RouteNameResolverInterface::class => CurrentRouteNameResolver::class
 ```
 
 ### Propagation

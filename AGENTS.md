@@ -14,7 +14,8 @@ Namespace: `Rasuvaeff\Yii3TelemetryOtel`.
 Public API: `OtelTracerProvider` (implements core `TracerProviderInterface`),
 `OtelTracer`, `OtelSpan` (adapters), `OtelTracerProviderFactory`,
 `OtlpExporterFactory`, `OtelMiddleware` (PSR-15), `TraceContextExtractor`,
-`TraceContextInjector`, `SpanFlusher`.
+`TraceContextInjector`, `SpanFlusher`, `RouteNameResolverInterface` /
+`CurrentRouteNameResolver` (semconv `{method} {route}` span names).
 
 The core's value types mirror OpenTelemetry 1:1, so the adapters map field-for-
 field with no lookup table: `TraceKind->value == SpanKind::KIND_*`,
@@ -104,6 +105,15 @@ docker run --rm -v "$REPO":/repo -w /repo/yii3-telemetry-otel composer:2 \
   hardcode a sampler in `config/di.php` — env is the configuration surface.
 - Integration tests (`tests/Integration`, an OTLP Collector round-trip) are
   env-gated on `OTEL_COLLECTOR_HOST` and skipped otherwise.
+- **Span names are semconv, low-cardinality**: `{method} {route}` when a
+  `RouteNameResolverInterface` is wired (app-side; `yiisoft/router` is
+  require-dev + `composer-require-checker.json` whitelist), bare `{method}`
+  otherwise. NEVER name a span with the raw path.
+- **Params toggles**: `enabled` (honours `OTEL_SDK_DISABLED`; off → di.php binds
+  core `NullTracerProvider` with a dependency-free closure — nothing OTel is
+  built) and `register_shutdown_flush` (default true; di.php registers
+  `$provider->shutdown()` via `register_shutdown_function`). `ConfigWiringTest`
+  covers both branches; keep it in sync.
 - Code: `declare(strict_types=1)`, `final readonly class`, `#[\Override]`,
   explicit types.
 - **CI workflows are SHA-pinned.** Every `uses:` references a 40-char commit SHA

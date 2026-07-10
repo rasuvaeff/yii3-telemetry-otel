@@ -71,7 +71,7 @@ final class ConsoleCommandSpanListenerTest
 
     public function missingCommandNameFallsBackToDefault(): void
     {
-        $this->listener->onStartup(new ApplicationStartup(null));
+        $this->listener->onStartup(new ApplicationStartup());
         $this->listener->onShutdown(new ApplicationShutdown(0));
 
         Assert::same($this->exporter->getSpans()[0]->getName(), 'console (default)');

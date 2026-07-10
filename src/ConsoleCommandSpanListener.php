@@ -62,7 +62,7 @@ final class ConsoleCommandSpanListener
 
     public function onShutdown(ApplicationShutdown $event): void
     {
-        if ($this->span === null) {
+        if (!$this->span instanceof \OpenTelemetry\API\Trace\SpanInterface) {
             return;
         }
 

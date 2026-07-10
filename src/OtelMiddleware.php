@@ -154,11 +154,11 @@ final readonly class OtelMiddleware implements MiddlewareInterface
      */
     private function requestParams(ServerRequestInterface $request): array
     {
-        $params = self::stringKeyed($request->getQueryParams());
+        $params = $this->stringKeyed($request->getQueryParams());
         $parsed = $request->getParsedBody();
 
         if (\is_array($parsed)) {
-            return $params + self::stringKeyed($parsed);
+            return $params + $this->stringKeyed($parsed);
         }
 
         if (str_contains(strtolower($request->getHeaderLine('Content-Type')), 'json')) {
@@ -173,7 +173,7 @@ final readonly class OtelMiddleware implements MiddlewareInterface
      *
      * @return array<string, mixed>
      */
-    private static function stringKeyed(array $data): array
+    private function stringKeyed(array $data): array
     {
         return array_combine(array_map(strval(...), array_keys($data)), array_values($data));
     }
@@ -205,7 +205,7 @@ final readonly class OtelMiddleware implements MiddlewareInterface
             return [];
         }
 
-        return self::stringKeyed($decoded);
+        return $this->stringKeyed($decoded);
     }
 
     private function redactedQuery(string $query): string

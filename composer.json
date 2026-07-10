@@ -56,18 +56,6 @@
         "yiisoft/router": "Route-template span names ({method} {route}) via CurrentRouteNameResolver",
         "yiisoft/yii-console": "Root span per console command (cron) via ConsoleCommandSpanListener"
     },
-    "repositories": [
-        {
-            "name": "telemetry",
-            "type": "path",
-            "url": "/repo/yii3-telemetry",
-            "options": {
-                "versions": {
-                    "rasuvaeff/yii3-telemetry": "1.0.0"
-                }
-            }
-        }
-    ],
     "autoload": {
         "psr-4": {
             "Rasuvaeff\\Yii3TelemetryOtel\\": "src/"

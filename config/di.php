@@ -45,8 +45,13 @@ return [
         return $provider;
     },
 
-    // The SDK provider also satisfies the OTel API provider consumed by OtelTracerProvider.
-    OtelApiTracerProviderInterface::class => OtelSdkTracerProviderInterface::class,
+    // The SDK provider also satisfies the OTel API provider consumed by
+    // OtelTracerProvider and ConsoleCommandSpanListener. With `enabled` off it
+    // resolves to the OTel no-op provider, so API-level consumers (the console
+    // listener) go silent too without building the SDK.
+    OtelApiTracerProviderInterface::class => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['enabled'] ?? true)
+        ? OtelSdkTracerProviderInterface::class
+        : static fn (): OtelApiTracerProviderInterface => new \OpenTelemetry\API\Trace\NoopTracerProvider(),
 
     TracerProviderInterface::class => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['enabled'] ?? true)
         ? static fn (OtelApiTracerProviderInterface $provider): TracerProviderInterface => new OtelTracerProvider($provider)

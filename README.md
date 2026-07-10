@@ -132,6 +132,7 @@ re-throws; nested spans inherit the parent trace id).
 | `OtelTracerProviderFactory` | builds an SDK `TracerProvider` from an exporter (batch by default) |
 | `OtlpExporterFactory` | builds the OTLP/HTTP span exporter |
 | `RouteNameResolverInterface` / `CurrentRouteNameResolver` | route-template span names (`{method} {route}`) — see above |
+| `ConsoleCommandSpanListener` | root span per console command (cron) — see Console commands |
 | `OtelMiddleware` | PSR-15 SERVER root span + incoming-context extraction |
 | `TraceContextExtractor` / `TraceContextInjector` | W3C context in / out |
 | `SpanFlusher` | `forceFlush()` for long-running workers |
@@ -160,8 +161,25 @@ register_shutdown_function(static fn (): bool => $flusher->flush());
 
 ### Console commands
 
-`OtelMiddleware` is web-only. In console commands open the root span manually and
-make sure a flush is registered (see above):
+`OtelMiddleware` is web-only. For console commands (cron!) register
+`ConsoleCommandSpanListener` — it brackets `ApplicationStartup`/`ApplicationShutdown`
+in an ACTIVATED root span `console <command>`, so DB/HTTP instrumentation spans
+become its children instead of flooding the backend with root-less `db.query`
+traces. A non-zero exit code marks the span as an error.
+
+```php
+// config/console/events.php (needs yiisoft/yii-console — optional dep)
+use Rasuvaeff\Yii3TelemetryOtel\ConsoleCommandSpanListener;
+use Yiisoft\Yii\Console\Event\ApplicationShutdown;
+use Yiisoft\Yii\Console\Event\ApplicationStartup;
+
+return [
+    ApplicationStartup::class => [[ConsoleCommandSpanListener::class, 'onStartup']],
+    ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
+];
+```
+
+For ad-hoc scripts without yii-console, `trace()` still works:
 
 ```php
 $tracer->trace('cron.sync-orders', fn (SpanInterface $span) => $command->run(), traceKind: TraceKind::Internal);

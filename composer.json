@@ -46,13 +46,15 @@
         "testo/testo": "^0.10.25",
         "vimeo/psalm": "^6.16",
         "yiisoft/dummy-provider": "^1.1",
-        "yiisoft/router": "^4.0.2"
+        "yiisoft/router": "^4.0.2",
+        "yiisoft/yii-console": "^2.4"
     },
     "suggest": {
         "ext-protobuf": "Faster OTLP protobuf serialization (pure-PHP google/protobuf is the fallback)",
         "guzzlehttp/guzzle": "PSR-18 HTTP client for the OTLP/HTTP transport",
         "php-http/discovery": "PSR-18/PSR-17 discovery used by the OTLP/HTTP transport",
-        "yiisoft/router": "Route-template span names ({method} {route}) via CurrentRouteNameResolver"
+        "yiisoft/router": "Route-template span names ({method} {route}) via CurrentRouteNameResolver",
+        "yiisoft/yii-console": "Root span per console command (cron) via ConsoleCommandSpanListener"
     },
     "repositories": [
         {

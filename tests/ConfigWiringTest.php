@@ -69,6 +69,11 @@ final class ConfigWiringTest
         $provider = $di[TracerProviderInterface::class]();
 
         Assert::instanceOf($provider, NullTracerProvider::class);
+
+        // API-level consumers (ConsoleCommandSpanListener) go no-op too,
+        // without ever building the SDK/exporter chain.
+        $apiProvider = $di[OtelApiTracerProviderInterface::class]();
+        Assert::instanceOf($apiProvider, \OpenTelemetry\API\Trace\NoopTracerProvider::class);
     }
 
     public function paramsCarryTheOperationalToggles(): void

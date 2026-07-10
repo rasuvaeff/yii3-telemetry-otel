@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `content_type` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`, e.g. `http/json` for
   JSON-only receivers); `excluded_paths` — `OtelMiddleware` skips scrape/probe
   endpoints so Prometheus polling doesn't flood the tracing backend.
+- `ConsoleCommandSpanListener` — root span `console <command>` bracketing
+  `yiisoft/yii-console` Startup/Shutdown events (activated: instrumentation
+  spans become children; cron jobs stop flooding the backend with root-less
+  `db.query` traces; non-zero exit code → Error).
 - Request data on the root span: `url.query` (default on, sensitive values
   masked recursively) and opt-in `capture_request_params` —
   `http.request.param.<name>` attributes from query/form/JSON-body parameters

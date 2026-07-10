@@ -15,7 +15,10 @@ Public API: `OtelTracerProvider` (implements core `TracerProviderInterface`),
 `OtelTracer`, `OtelSpan` (adapters), `OtelTracerProviderFactory`,
 `OtlpExporterFactory`, `OtelMiddleware` (PSR-15), `TraceContextExtractor`,
 `TraceContextInjector`, `SpanFlusher`, `RouteNameResolverInterface` /
-`CurrentRouteNameResolver` (semconv `{method} {route}` span names).
+`CurrentRouteNameResolver` (semconv `{method} {route}` span names),
+`ConsoleCommandSpanListener` (root span per yii-console command; yiisoft/yii-console
+is require-dev + require-checker whitelist; with `enabled` off the OTel API
+provider key resolves to the OTel NoopTracerProvider so the listener is no-op).
 
 The core's value types mirror OpenTelemetry 1:1, so the adapters map field-for-
 field with no lookup table: `TraceKind->value == SpanKind::KIND_*`,

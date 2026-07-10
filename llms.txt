@@ -78,6 +78,15 @@ $otelContext = (new TraceContextExtractor())->extract($serverRequest); // OTel C
 $request     = (new TraceContextInjector())->inject($clientRequest);   // adds traceparent from active span
 ```
 
+### Console commands (cron)
+
+```php
+// config/console/events.php — root span 'console <command>' around each run;
+// children = DB/HTTP spans; exit code != 0 => Error. Needs yiisoft/yii-console.
+ApplicationStartup::class => [[ConsoleCommandSpanListener::class, 'onStartup']],
+ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
+```
+
 ### Flush (long-running)
 
 ```php

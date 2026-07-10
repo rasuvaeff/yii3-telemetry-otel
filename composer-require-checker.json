@@ -1,6 +1,8 @@
 {
     "symbol-whitelist": [
-        "Yiisoft\\Router\\CurrentRoute"
+        "Yiisoft\\Router\\CurrentRoute",
+        "Yiisoft\\Yii\\Console\\Event\\ApplicationStartup",
+        "Yiisoft\\Yii\\Console\\Event\\ApplicationShutdown"
     ],
     "php-core-extensions": [
         "Core",

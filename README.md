@@ -59,7 +59,7 @@ Operational toggles in `params.php` (overridable in your app params):
 | Param | Default | Meaning |
 |---|---|---|
 | `enabled` | `true` (honours `OTEL_SDK_DISABLED=true`) | `false` binds the no-op `NullTracerProvider` — nothing is built or exported, no error-log noise from an unreachable collector |
-| `content_type` | `application/x-protobuf` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | OTLP/HTTP payload encoding; some receivers (e.g. Buggregator) only speak JSON cleanly |
+| `content_type` | `application/x-protobuf` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | OTLP/HTTP payload encoding for a verified OTLP receiver such as the OTel Collector, Tempo, or Jaeger |
 | `excluded_paths` | `[]` | exact request paths `OtelMiddleware` skips — scrape/probe endpoints (`/metrics`, `/health`): Prometheus polling every few seconds floods the tracing backend with identical traces |
 | `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level |
 | `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
@@ -202,6 +202,40 @@ Runnable scripts in [`examples/`](examples/): in-memory export, the middleware,
 and OTLP provider setup. See [`examples/README.md`](examples/README.md). A
 full-stack `docker-compose` (collector + Tempo + Grafana) lives in
 [`examples/docker-compose/`](examples/docker-compose/).
+
+### OTLP smoke check
+
+Start that stack, emit a uniquely named span, then verify that Tempo indexed it:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 php examples/04_otlp_smoke.php
+curl -fsSG http://localhost:3200/api/search \
+  --data-urlencode 'q={ name = "yii3-telemetry-otel.smoke" }'
+```
+
+The Tempo response must contain a trace (or find the same span in Grafana at
+`http://localhost:3000`). An exporter HTTP 2xx alone is insufficient: a generic
+HTTP dump endpoint can accept the payload without decoding it as OTLP.
+
+### Dependency analysers
+
+This leaf package is selected by the root application through config-plugin and
+may legitimately have no class reference in an autoloaded source directory. Keep
+the direct dependency: the application, not a core package, selects the backend
+or bridge. Scope the Composer Dependency Analyser exception to this package:
+
+```php
+use ShipMonk\ComposerDependencyAnalyser\Config\Configuration;
+use ShipMonk\ComposerDependencyAnalyser\Config\ErrorType;
+
+return (new Configuration())->ignoreErrorsOnPackage(
+    'rasuvaeff/yii3-telemetry-otel',
+    [ErrorType::UNUSED_DEPENDENCY],
+);
+```
+
+`composer-require-checker` detects used but undeclared symbols, not unused
+packages, so this config-only dependency needs no require-checker suppression.
 
 ## Development
 

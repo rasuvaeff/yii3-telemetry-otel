@@ -11,8 +11,8 @@ return [
         'service_name' => getenv('OTEL_SERVICE_NAME') ?: 'yii3-app',
         'endpoint' => getenv('OTEL_EXPORTER_OTLP_ENDPOINT') ?: 'http://localhost:4318',
         // OTLP/HTTP payload encoding, mapped from the standard
-        // OTEL_EXPORTER_OTLP_PROTOCOL (http/protobuf | http/json). Some
-        // receivers (e.g. Buggregator) only speak JSON cleanly.
+        // OTEL_EXPORTER_OTLP_PROTOCOL (http/protobuf | http/json). Use an
+        // actual OTLP receiver such as the OTel Collector, Tempo, or Jaeger.
         'content_type' => (getenv('OTEL_EXPORTER_OTLP_PROTOCOL') ?: 'http/protobuf') === 'http/json'
             ? 'application/json'
             : 'application/x-protobuf',

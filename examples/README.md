@@ -7,6 +7,7 @@ Runnable examples for `rasuvaeff/yii3-telemetry-otel`.
 | `01_in_memory.php` | Export spans to an in-memory exporter and inspect their fields | no |
 | `02_middleware.php` | `OtelMiddleware` opening a SERVER span that continues an incoming trace | no |
 | `03_otlp_setup.php` | Building a real OTLP provider + `SpanFlusher` (offline; no span emitted) | no |
+| `04_otlp_smoke.php` | Exporting a named smoke span to an OTLP receiver | yes |
 
 ## Running
 

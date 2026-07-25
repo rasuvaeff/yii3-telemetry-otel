@@ -48,7 +48,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
  | Парам | По умолчанию | Значение |
  |---|---|---|
  | `включено` | `true` (учитывается `OTEL_SDK_DISABLED=true`) | `false` связывает неактивный `NullTracerProvider` — ничего не создается и не экспортируется, нет шума в журнале ошибок от недостижимого коллектора |
- | `тип_контента` | `application/x-protobuf` (с уважением `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | Кодирование полезной нагрузки OTLP/HTTP; некоторые приемники (например, Buggregator) корректно обрабатывают только JSON |
+ | `тип_контента` | `application/x-protobuf` (с учетом `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | Кодирование OTLP/HTTP для проверенного OTLP receiver: OTel Collector, Tempo или Jaeger |
  | `исключенные_пути` | `[]` | точные пути запросов пропускаются `OtelMiddleware` — очистка/проверка конечных точек (`/metrics`, `/health`): опрос Prometheus каждые несколько секунд переполняет серверную часть трассировки идентичными трассировками |
  | `capture_query` | `правда` | `url.query` в корневом диапазоне; значения чувствительных ключей (`password`, `token`, `api_key`, …) заменяются на `***` на каждом уровне вложенности |
  | `capture_request_params` | `false` — **сознательное согласие** (полезные данные запроса могут содержать персональные данные) | записывает каждый параметр JSON-body запроса/формы/верхнего уровня как `http.request.param.<name>`; конфиденциальные ключи замаскированы, значения усечены до 200 символов, тела JSON размером более 8 КиБ пропущены |
@@ -169,6 +169,41 @@ $tracer->trace('cron.sync-orders', fn (SpanInterface $span) => $command->run(), 
  и настройка провайдера OTLP. См. [`examples/README.md`](examples/README.md). Полнофункциональный `docker-compose`
  (коллектор + Tempo + Grafana) находится в
  [`examples/docker-compose/`](examples/docker-compose/). @@ЛИНИЯ@@
+### Smoke-проверка OTLP
+Запустите этот стек, отправьте span с уникальным именем и убедитесь, что Tempo
+его проиндексировал:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 php examples/04_otlp_smoke.php
+curl -fsSG http://localhost:3200/api/search \
+  --data-urlencode 'q={ name = "yii3-telemetry-otel.smoke" }'
+```
+
+Ответ Tempo должен содержать trace; тот же span можно найти в Grafana на
+`http://localhost:3000`. Одного HTTP 2xx от exporter недостаточно: обычный
+HTTP dump endpoint может принять payload, не распознав его как OTLP.
+
+### Анализаторы зависимостей
+
+Это leaf-пакет, который root-приложение выбирает через config-plugin, поэтому в
+autoloaded source может законно не быть прямой ссылки на его классы. Сохраняйте
+direct dependency: backend или bridge выбирает приложение, а не core-пакет.
+Исключение Composer Dependency Analyser должно быть ограничено этим пакетом:
+
+```php
+use ShipMonk\ComposerDependencyAnalyser\Config\Configuration;
+use ShipMonk\ComposerDependencyAnalyser\Config\ErrorType;
+
+return (new Configuration())->ignoreErrorsOnPackage(
+    'rasuvaeff/yii3-telemetry-otel',
+    [ErrorType::UNUSED_DEPENDENCY],
+);
+```
+
+`composer-require-checker` ищет используемые, но не объявленные symbols, а не
+unused packages, поэтому для такой config-only зависимости suppression ему не
+нужен.
+
 ## Разработка
 Ядро разрешается через репозиторий путей во время локальной разработки, поэтому запустите
  Docker с **корнем монорепо**, смонтированным как `/repo`:

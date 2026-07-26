@@ -127,7 +127,7 @@ docker run --rm -v "$REPO":/repo -w /repo/yii3-telemetry-otel composer:2 \
 
 ## When you finish
 
-- Update `README.md` (and `examples/` if usage changed); update `CHANGELOG.md`
-  when releasing.
+- Update `README.md` **and `README.ru.md`** (both languages, same commit; and
+  `examples/` if usage changed); update `CHANGELOG.md` when releasing.
 - Re-run `composer build` (monorepo mount); paste the output. For releases also
   run mutation and `release-check`.

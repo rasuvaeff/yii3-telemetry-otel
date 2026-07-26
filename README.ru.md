@@ -1,4 +1,5 @@
 # rasuvaeff/yii3-telemetry-otel
+
 [![Stable Version](https://img.shields.io/packagist/v/rasuvaeff/yii3-telemetry-otel.svg)](https://packagist.org/packages/rasuvaeff/yii3-telemetry-otel)
 [![Total Downloads](https://img.shields.io/packagist/dt/rasuvaeff/yii3-telemetry-otel.svg)](https://packagist.org/packages/rasuvaeff/yii3-telemetry-otel)
 [![Build](https://img.shields.io/github/actions/workflow/status/rasuvaeff/yii3-telemetry-otel/build.yml?branch=master)](https://github.com/rasuvaeff/yii3-telemetry-otel/actions)
@@ -6,61 +7,74 @@
 [![Psalm Level](https://shepherd.dev/github/rasuvaeff/yii3-telemetry-otel/level.svg)](https://shepherd.dev/github/rasuvaeff/yii3-telemetry-otel)
 [![PHP](https://img.shields.io/packagist/dependency-v/rasuvaeff/yii3-telemetry-otel/php)](https://packagist.org/packages/rasuvaeff/yii3-telemetry-otel)
 [![License](https://img.shields.io/packagist/l/rasuvaeff/yii3-telemetry-otel.svg)](https://github.com/rasuvaeff/yii3-telemetry-otel/blob/master/LICENSE.md)
-OpenTelemetry tracing backend for [`rasuvaeff/yii3-telemetry`](https://github.com/rasuvaeff/yii3-telemetry).
-Он превращает основной фасад Tracer в реальные промежутки, экспортируемые через OTLP в сборщик
- OpenTelemetry, а также промежуточное программное обеспечение корневого диапазона PSR-15 и распространение контекста W3C
-.
+[English version](README.md)
 
- > Используете помощника по программированию с искусственным интеллектом? [llms.txt](llms.txt) имеет компактную ссылку на API
- > которую можно передать в качестве контекста. @@ЛИНИЯ@@
+Backend трассировки OpenTelemetry для [`rasuvaeff/yii3-telemetry`](https://github.com/rasuvaeff/yii3-telemetry).
+Превращает фасад `Tracer` из ядра в настоящие span'ы, экспортируемые по OTLP в
+OpenTelemetry Collector, и добавляет PSR-15 middleware корневого span'а и
+распространение контекста по W3C.
+
+> Используете AI-ассистента для программирования? В [llms.txt](llms.txt) лежит
+> компактный справочник по API, который можно передать как контекст.
+
 ## Требования
-- PHP 8.3+ (64-битная версия)
- - `rasuvaeff/yii3-telemetry` ^1.0
- - `open-telemetry/sdk` ^1.7, `open-telemetry/exporter-otlp` ^1.4
- - HTTP-клиент PSR-18 для экспорта OTLP (например, `guzzlehttp/guzzle`)
+
+- PHP 8.3+ (64-битный)
+- `rasuvaeff/yii3-telemetry` ^1.0
+- `open-telemetry/sdk` ^1.7, `open-telemetry/exporter-otlp` ^1.4
+- PSR-18 HTTP-клиент для экспорта по OTLP (например, `guzzlehttp/guzzle`)
 
 ## Установка
+
 ```bash
 composer require rasuvaeff/yii3-telemetry-otel guzzlehttp/guzzle
 ```
-Установка этого пакета привязывает заменяемый интерфейс TracerProviderInterface в ядре
- — фасад Tracer теперь создает экспортированные диапазоны. **Не** также самостоятельно привязывайте поставщика
- (это преднамеренная ошибка `yiisoft/config` `Duplate key`).
 
- Composer запросит доверие к плагинам `php-http/discovery` и `tbachert/spi`
- (транзитивные зависимости OpenTelemetry) — ответьте утвердительно или предварительно настройте их в
- `config.allow-plugins`. @@ЛИНИЯ@@
+Установка этого пакета биндит сменный `TracerProviderInterface` в ядре — фасад
+`Tracer` начинает выдавать экспортируемые span'ы. Не биндите провайдер ещё и
+самостоятельно: это осознанная ошибка `Duplicate key` из `yiisoft/config`.
+
+Composer спросит разрешение на плагины `php-http/discovery` и `tbachert/spi`
+(транзитивные зависимости OpenTelemetry) — ответьте «да» либо пропишите их
+заранее в `config.allow-plugins`.
+
 ## Использование
-### Подключите его (yiisoft/config)
-В состав пакета входят `config/di.php`, `config/di-web.php` и `config/params.php`.
- Настройте конечную точку сборщика и имя службы с помощью переменных env (стандартные имена OTel
-):
+
+### Подключение (yiisoft/config)
+
+Пакет поставляет `config/di.php`, `config/di-web.php` и `config/params.php`.
+Адрес коллектора и имя сервиса задаются переменными окружения (стандартные
+имена OTel):
 
 ```bash
 OTEL_SERVICE_NAME=checkout-api
 OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 ```
-Добавьте OtelMiddleware в свой стек промежуточного программного обеспечения (обычно первым), чтобы каждый запрос
- получал корневой диапазон SERVER, который продолжает любую входящую распределенную трассировку.
 
- Операционные переключатели в `params.php` (переопределяемые в параметрах вашего приложения):
+Добавьте `OtelMiddleware` в стек middleware (обычно первым), чтобы каждый запрос
+получал корневой SERVER-span, продолжающий входящую распределённую трассировку.
 
- | Парам | По умолчанию | Значение |
- |---|---|---|
- | `включено` | `true` (учитывается `OTEL_SDK_DISABLED=true`) | `false` связывает неактивный `NullTracerProvider` — ничего не создается и не экспортируется, нет шума в журнале ошибок от недостижимого коллектора |
- | `тип_контента` | `application/x-protobuf` (с учетом `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | Кодирование OTLP/HTTP для проверенного OTLP receiver: OTel Collector, Tempo или Jaeger |
- | `исключенные_пути` | `[]` | точные пути запросов пропускаются `OtelMiddleware` — очистка/проверка конечных точек (`/metrics`, `/health`): опрос Prometheus каждые несколько секунд переполняет серверную часть трассировки идентичными трассировками |
- | `capture_query` | `правда` | `url.query` в корневом диапазоне; значения чувствительных ключей (`password`, `token`, `api_key`, …) заменяются на `***` на каждом уровне вложенности |
- | `capture_request_params` | `false` — **сознательное согласие** (полезные данные запроса могут содержать персональные данные) | записывает каждый параметр JSON-body запроса/формы/верхнего уровня как `http.request.param.<name>`; конфиденциальные ключи замаскированы, значения усечены до 200 символов, тела JSON размером более 8 КиБ пропущены |
- | `партия` | `правда` | пакетный процессор (см. промывку ниже) |
- | `register_shutdown_flush` | `правда` | регистрирует перехватчик завершения работы, который очищает пакетный процессор — правильное значение по умолчанию для php-fpm и CLI; отключить в RoadRunner/Swoole, если вы выполняете очистку через SpanFlusher по таймеру |
- | `finish_request_before_flush` | `правда` | вызывает `fastcgi_finish_request()` перед сбросом, поэтому клиент никогда не ждет двустороннего обхода OTLP (без него измерено ~ 100 мс — эмиттер SAPI Yii3 не завершает запрос сам). Отключайте только в том случае, если другие функции завершения работы все еще записывают ответ | @@ЛИНИЯ@@
-### Промежуточные имена и `http.route`
-Именование интервала соответствует semconv HTTP OTel: `{method} {route}` с шаблоном маршрута
- (`GET /users/{id}`), обычный `{method}` в противном случае — никогда необработанный путь
- (одно имя интервала на каждый идентификатор пользователя может нарушить операцию поиска в Tempo/Jaeger; необработанный путь
- всегда находится в атрибуте `url.path`). Подключите преобразователь
- на стороне приложения (ему требуется `yiisoft/router`, который является необязательным):
+Операционные переключатели в `params.php` (переопределяются в params приложения):
+
+| Параметр | По умолчанию | Смысл |
+|---|---|---|
+| `enabled` | `true` (учитывает `OTEL_SDK_DISABLED=true`) | `false` биндит no-op `NullTracerProvider` — ничего не строится и не экспортируется, в error-log нет шума от недоступного коллектора |
+| `content_type` | `application/x-protobuf` (учитывает `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | кодировка payload'а OTLP/HTTP для настоящего OTLP-приёмника: OTel Collector, Tempo или Jaeger |
+| `excluded_paths` | `[]` | точные пути запросов, которые `OtelMiddleware` пропускает — scrape/probe-эндпоинты (`/metrics`, `/health`): Prometheus, опрашивающий их каждые несколько секунд, заваливает backend трассировки одинаковыми трассами |
+| `capture_query` | `true` | `url.query` на корневом span'е; значения ключей, похожих на чувствительные (`password`, `token`, `api_key`, …), заменяются на `***` на любом уровне вложенности |
+| `capture_request_params` | `false` — **включать осознанно** (в payload запроса могут быть персональные данные) | пишет каждый query/form/top-level JSON-параметр как `http.request.param.<name>`; чувствительные ключи маскируются, значения обрезаются до 200 символов, JSON-тела больше 8 KiB пропускаются |
+| `batch` | `true` | batch-процессор span'ов (о сбросе — ниже) |
+| `register_shutdown_flush` | `true` | регистрирует shutdown-хук, сбрасывающий batch-процессор — правильное значение по умолчанию для php-fpm и CLI; отключайте на RoadRunner/Swoole, если сбрасываете через `SpanFlusher` по таймеру |
+| `finish_request_before_flush` | `true` | вызывает `fastcgi_finish_request()` перед сбросом, чтобы клиент не ждал OTLP round-trip (без него замерено ~100 мс — SAPI-эмиттер Yii3 сам запрос не завершает). Отключайте, только если другие shutdown-функции ещё пишут в ответ |
+
+### Имена span'ов и `http.route`
+
+Именование следует HTTP semconv от OTel: `{method} {route}` с шаблоном маршрута
+(`GET /users/{id}`), иначе просто `{method}` — но никогда не сырой путь (по
+span'у на каждый user id уничтожили бы поиск по операциям в Tempo/Jaeger; сырой
+путь всегда есть в атрибуте `url.path`). Резолвер, знающий о роутере,
+подключается на стороне приложения — ему нужен `yiisoft/router`, который является
+необязательной зависимостью:
 
 ```php
 // config/common/di.php
@@ -71,23 +85,31 @@ return [
     RouteNameResolverInterface::class => CurrentRouteNameResolver::class,
 ];
 ```
-CurrentRouteNameResolver считывает соответствующий шаблон yiisoft/router после запуска обработчика
-, поэтому промежуточное программное обеспечение трассировки может оставаться первым в стеке. Несовпадающие запросы
- (404, сканеры) сохраняют чистое имя `{method}`. Пользовательский преобразователь — это интерфейс
- с одним методом: `resolve(ServerRequestInterface): ?string`. @@ЛИНИЯ@@
-### Выборка
-Поставщик использует конфигурацию сэмплера SDK — стандартные переменные среды OTel:
+
+`CurrentRouteNameResolver` читает совпавший паттерн `yiisoft/router` уже после
+работы обработчика, поэтому middleware трассировки может оставаться первым в
+стеке. Несовпавшие запросы (404, сканеры) сохраняют голое имя `{method}`.
+Собственный резолвер — интерфейс из одного метода:
+`resolve(ServerRequestInterface): ?string`.
+
+### Сэмплирование
+
+Провайдер использует конфигурацию сэмплера из SDK — стандартные переменные
+окружения OTel:
 
 ```bash
 OTEL_TRACES_SAMPLER=parentbased_traceidratio
-OTEL_TRACES_SAMPLER_ARG=0.1   # keep 10% of new traces
+OTEL_TRACES_SAMPLER_ARG=0.1   # оставить 10% новых трасс
 ```
-Если этот параметр не установлен, по умолчанию используется `parentbased_always_on` (отслеживать все, учитывать входящее решение
-). Вместо этого, чтобы жестко запрограммировать сэмплер, передайте его фабрике:
- `new OtelTracerProviderFactory(serviceName: '...', sampler: new AlwaysOffSampler())`.
- Отброшенная трассировка по-прежнему запускает ваш обратный вызов — `$span` просто не записывает (замороженный основной контракт
-). @@ЛИНИЯ@@
-### Создайте поставщика вручную
+
+Если они не заданы, действует `parentbased_always_on` (трассировать всё, уважая
+входящее решение). Чтобы зашить сэмплер жёстко, передайте его в фабрику:
+`new OtelTracerProviderFactory(serviceName: '...', sampler: new AlwaysOffSampler())`.
+Отброшенная трасса всё равно выполняет ваш callback — `$span` просто ничего не
+записывает (зафиксированный контракт ядра).
+
+### Ручная сборка провайдера
+
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
@@ -101,48 +123,60 @@ $tracer->trace('checkout.process', static function ($span): void {
     $span->setAttribute('order.id', 'ORD-1');
 });
 ```
-`$tracer` — это основной `TracerInterface` — замороженный контракт `trace()` применяет
- (возвращает значение обратного вызова; при исключении его записывает, устанавливает статус Error, завершается,
- выдает повторно; вложенные диапазоны наследуют родительский идентификатор трассировки). @@ЛИНИЯ@@
-### Классы
-| Класс | Цель |
- |---|---|
- | `OtelTracerProvider` | ядро `TracerProviderInterface` через OTel SDK |
- | `OtelTracer` / `OtelSpan` | адаптеры: основной фасад → OTel пролет |
- | `OtelTracerProviderFactory` | собирает SDK TracerProvider из экспортера (по умолчанию пакетный режим) |
- | `OtlpExporterFactory` | создает экспортер интервалов OTLP/HTTP |
- | `RouteNameResolverInterface` / `CurrentRouteNameResolver` | имена диапазонов шаблонов маршрутов (`{method} {route}`) — см. выше |
- | `ConsoleCommandSpanListener` | корневой диапазон для каждой консольной команды (cron) — см. Консольные команды |
- | `OtelMiddleware` | PSR-15 SERVER корневой диапазон + извлечение входящего контекста |
- | `TraceContextExtractor` / `TraceContextInjector` | Контекст W3C в/из |
- | `СпанФлашер` | `forceFlush()` для долго работающих работников | @@ЛИНИЯ@@
-### Завершение промежутков и очистка экспортера
-Промежуточное программное обеспечение завершает корневой диапазон «наконец» в каждом запросе (без утечки диапазона). Сброс
- пакетного экспортера является **отдельным** — `new TracerProvider(...)` регистрирует **нет**
- сброс автоматического выключения, поэтому с `register_shutdown_flush: true` (по умолчанию)
- проводка DI регистрирует один для вас:
 
- | Время выполнения | С значением по умолчанию `register_shutdown_flush: true` |
- |---|---|
- | **php-фпм** | Перехватчик запускается в **конце каждого запроса**, после того, как ответ был отправлен с помощью `fastcgi_finish_request` — один цикл OTLP на каждый запрос. Это единственный правильный вариант для fpm: здесь нет перехватчика отключения рабочего процесса на пользовательской территории, а диапазоны с пакетной буферизацией в противном случае **теряются**, когда fpm перезапускает работника. (`batch: false` / `SimpleSpanProcessor` — альтернатива: экспорт для каждого диапазона) |
- | **RoadRunner/Swoole/FrankenPHP** | Перехватчик срабатывает один раз при выходе рабочего процесса — безопасно, но учтите `register_shutdown_flush: false` + `SpanFlusher::flush()` по таймеру / каждые N запросов, поэтому при сбое теряется не более одного интервала |
- | **CLI/cron** | Хук срабатывает один раз при выходе из процесса — совершенно верно | @@ЛИНИЯ@@
+`$tracer` — это `TracerInterface` из ядра, действует зафиксированный контракт
+`trace()`: возвращает значение callback'а; при исключении записывает его, ставит
+статус Error, закрывает span и пробрасывает исключение дальше; вложенные span'ы
+наследуют trace id родителя.
+
+### Классы
+
+| Класс | Назначение |
+|---|---|
+| `OtelTracerProvider` | `TracerProviderInterface` ядра поверх OTel SDK |
+| `OtelTracer` / `OtelSpan` | адаптеры: фасад ядра → span OTel |
+| `OtelTracerProviderFactory` | строит `TracerProvider` из SDK по экспортёру (по умолчанию batch) |
+| `OtlpExporterFactory` | строит экспортёр span'ов OTLP/HTTP |
+| `RouteNameResolverInterface` / `CurrentRouteNameResolver` | имена span'ов по шаблону маршрута (`{method} {route}`) — см. выше |
+| `ConsoleCommandSpanListener` | корневой span на консольную команду (cron) — см. «Консольные команды» |
+| `OtelMiddleware` | PSR-15 корневой SERVER-span + извлечение входящего контекста |
+| `TraceContextExtractor` / `TraceContextInjector` | контекст W3C на вход и на выход |
+| `SpanFlusher` | `forceFlush()` для долгоживущих воркеров |
+
+### Закрытие span'ов и сброс экспортёра
+
+Middleware закрывает корневой span в `finally` на каждом запросе — утечки span'ов
+нет. Сброс batch-экспортёра — **отдельная** история: `new TracerProvider(...)` не
+регистрирует автоматический сброс на shutdown, поэтому при
+`register_shutdown_flush: true` (значение по умолчанию) DI-обвязка регистрирует
+его за вас:
+
+| Среда выполнения | При умолчании `register_shutdown_flush: true` |
+|---|---|
+| **php-fpm** | Хук срабатывает в **конце каждого запроса**, уже после отправки ответа через `fastcgi_finish_request` — один OTLP round-trip на запрос. На fpm это единственный корректный вариант: пользовательского хука на завершение воркера нет, а накопленные в batch span'ы **теряются**, когда fpm пересоздаёт воркер. (Альтернатива — `batch: false` / `SimpleSpanProcessor`: экспорт на каждый span) |
+| **RoadRunner / Swoole / FrankenPHP** | Хук срабатывает один раз при выходе воркера — это безопасно, но стоит рассмотреть `register_shutdown_flush: false` + `SpanFlusher::flush()` по таймеру или каждые N запросов: тогда падение теряет максимум один интервал |
+| **CLI / cron** | Хук срабатывает один раз при выходе процесса — ровно то, что нужно |
+
 ```php
 use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
 
 $flusher = new SpanFlusher($sdkProvider);
 // php-fpm / CLI:
 register_shutdown_function(static fn (): bool => $flusher->flush());
-// RoadRunner: call $flusher->flush() on worker stop instead.
+// RoadRunner: вместо этого вызывайте $flusher->flush() при остановке воркера.
 ```
+
 ### Консольные команды
-`OtelMiddleware` доступен только через Интернет. Для консольных команд (cron!) зарегистрируйте
- `ConsoleCommandSpanListener` — он заключает в скобки `ApplicationStartup`/`ApplicationShutdown`
- в АКТИВИРОВАННОМ корневом диапазоне `console <command>`, так что инструменты DB/HTTP охватывают
-, становясь его дочерними элементами, вместо того, чтобы заполнять серверную часть безкорневыми трассировками `db.query`
-. Ненулевой код выхода помечает интервал как ошибку. @@ЛИНИЯ@@
+
+`OtelMiddleware` работает только для web. Для консольных команд (и особенно для
+cron) зарегистрируйте `ConsoleCommandSpanListener` — он оборачивает
+`ApplicationStartup`/`ApplicationShutdown` в активированный корневой span
+`console <command>`, чтобы span'ы инструментирования БД и HTTP становились его
+детьми, а не заваливали backend трассами `db.query` без корня. Ненулевой код
+возврата помечает span как ошибочный.
+
 ```php
-// config/console/events.php (needs yiisoft/yii-console — optional dep)
+// config/console/events.php (нужен yiisoft/yii-console — необязательная зависимость)
 use Rasuvaeff\Yii3TelemetryOtel\ConsoleCommandSpanListener;
 use Yiisoft\Yii\Console\Event\ApplicationShutdown;
 use Yiisoft\Yii\Console\Event\ApplicationStartup;
@@ -152,24 +186,31 @@ return [
     ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
 ];
 ```
-Для специальных скриптов без консоли yii, трассировка() все еще работает:
+
+Для разовых скриптов без yii-console по-прежнему работает `trace()`:
 
 ```php
 $tracer->trace('cron.sync-orders', fn (SpanInterface $span) => $command->run(), traceKind: TraceKind::Internal);
 ```
+
 ## Безопасность
-- Заголовки распределенной трассировки проверяются основным распространителем; неправильно сформированный
- `traceparent` игнорируется, ему не доверяют.
- — в URL-адресах не указываются учетные данные; конечная точка OTLP — это конфигурация.
- — промежуточное программное обеспечение записывает `http.request.method`, `url.path`, `server.address`,
- `http.response.status_code` — избегайте добавления высокомощных или чувствительных атрибутов
-. @@ЛИНИЯ@@
+
+- Заголовки распределённой трассировки проверяются пропагатором ядра;
+  некорректный `traceparent` игнорируется, а не принимается на веру.
+- Учётные данные не помещаются в URL; адрес OTLP — это конфигурация.
+- Middleware пишет `http.request.method`, `url.path`, `server.address`,
+  `http.response.status_code` — избегайте добавления атрибутов с высокой
+  кардинальностью или чувствительным содержимым.
+
 ## Примеры
-Запускаемые сценарии в [`examples/`](examples/): экспорт в память, промежуточное программное обеспечение,
- и настройка провайдера OTLP. См. [`examples/README.md`](examples/README.md). Полнофункциональный `docker-compose`
- (коллектор + Tempo + Grafana) находится в
- [`examples/docker-compose/`](examples/docker-compose/). @@ЛИНИЯ@@
-### Smoke-проверка OTLP
+
+Исполняемые скрипты — в [`examples/`](examples/): экспорт в память, middleware и
+настройка OTLP-провайдера. См. [`examples/README.md`](examples/README.md).
+Полный стек через `docker-compose` (collector + Tempo + Grafana) лежит в
+[`examples/docker-compose/`](examples/docker-compose/).
+
+### Дымовая проверка OTLP
+
 Запустите этот стек, отправьте span с уникальным именем и убедитесь, что Tempo
 его проиндексировал:
 
@@ -179,16 +220,17 @@ curl -fsSG http://localhost:3200/api/search \
   --data-urlencode 'q={ name = "yii3-telemetry-otel.smoke" }'
 ```
 
-Ответ Tempo должен содержать trace; тот же span можно найти в Grafana на
-`http://localhost:3000`. Одного HTTP 2xx от exporter недостаточно: обычный
-HTTP dump endpoint может принять payload, не распознав его как OTLP.
+Ответ Tempo обязан содержать трассу (либо найдите тот же span в Grafana на
+`http://localhost:3000`). Одного HTTP 2xx от экспортёра недостаточно: обычный
+HTTP-эндпоинт, дампящий запросы, примет payload, не декодировав его как OTLP.
 
 ### Анализаторы зависимостей
 
-Это leaf-пакет, который root-приложение выбирает через config-plugin, поэтому в
-autoloaded source может законно не быть прямой ссылки на его классы. Сохраняйте
-direct dependency: backend или bridge выбирает приложение, а не core-пакет.
-Исключение Composer Dependency Analyser должно быть ограничено этим пакетом:
+Этот листовой пакет выбирается корневым приложением через config-plugin и вполне
+законно может не иметь ни одной ссылки на класс в автозагружаемых исходниках.
+Прямую зависимость нужно сохранить: backend или мост выбирает приложение, а не
+пакет-ядро. Исключение для Composer Dependency Analyser ограничивайте этим
+пакетом:
 
 ```php
 use ShipMonk\ComposerDependencyAnalyser\Config\Configuration;
@@ -200,18 +242,22 @@ return (new Configuration())->ignoreErrorsOnPackage(
 );
 ```
 
-`composer-require-checker` ищет используемые, но не объявленные symbols, а не
-unused packages, поэтому для такой config-only зависимости suppression ему не
-нужен.
+`composer-require-checker` ищет используемые, но не объявленные символы, а не
+неиспользуемые пакеты, поэтому этой конфигурационной зависимости подавление для
+require-checker не требуется.
 
 ## Разработка
-Ядро разрешается через репозиторий путей во время локальной разработки, поэтому запустите
- Docker с **корнем монорепо**, смонтированным как `/repo`:
+
+Во время локальной разработки ядро подключается через path-репозиторий, поэтому
+запускайте Docker с примонтированным **корнем монорепо** как `/repo`:
 
 ```bash
 docker run --rm -v /path/to/monorepo:/repo -w /repo/yii3-telemetry-otel \
   composer:2 composer build
 ```
-Полный набор команд и контрольный список публикации см. в [AGENTS.md](AGENTS.md). @@ЛИНИЯ@@
+
+Полный набор команд и чеклист публикации — в [AGENTS.md](AGENTS.md).
+
 ## Лицензия
-BSD-3-пункт. См. [LICENSE.md](LICENSE.md).
+
+BSD-3-Clause. См. [LICENSE.md](LICENSE.md).

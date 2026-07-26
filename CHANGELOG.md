@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.2 — 2026-07-26
+
+- Rewrite `README.ru.md`. It had been machine-translated: package, class and
+  method names were translated as prose, so the document described an API that
+  does not exist, and 12 `@@ЛИНИЯ@@` translator artefacts were left in the text.
+  The new version mirrors `README.md` section for section, keeping identifiers,
+  parameter names and code blocks in English.
+- `AGENTS.md`: the "When you finish" checklist now requires `README.ru.md`
+  alongside `README.md`, matching the monorepo rule — the omission is how the
+  Russian version drifted in the first place.
+
 ## 1.0.1 — 2026-07-25
 
 - Correct OTLP receiver guidance: remove the unsupported Buggregator claim and

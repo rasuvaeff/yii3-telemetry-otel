@@ -36,7 +36,7 @@
     "require-dev": {
         "ergebnis/composer-normalize": "^2.51",
         "friendsofphp/php-cs-fixer": "^3.95",
-        "guzzlehttp/guzzle": "^7.8",
+        "guzzlehttp/guzzle": "^7.8 || ^8.0",
         "infection/infection": "^0.33 || ^0.34",
         "maglnet/composer-require-checker": "^4.17",
         "nyholm/psr7": "^1.8",

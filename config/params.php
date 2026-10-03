@@ -2,6 +2,22 @@
 
 declare(strict_types=1);
 
+// OTEL_EXPORTER_OTLP_TRACES_TIMEOUT, then OTEL_EXPORTER_OTLP_TIMEOUT: integer
+// milliseconds per the OTel spec, converted to seconds. The first non-empty
+// value wins; non-numeric or non-positive → the SDK default (10 s).
+$otlpTimeout = static function (): float {
+    foreach (['OTEL_EXPORTER_OTLP_TRACES_TIMEOUT', 'OTEL_EXPORTER_OTLP_TIMEOUT'] as $name) {
+        $value = trim((string) getenv($name));
+        if ($value === '') {
+            continue;
+        }
+
+        return ctype_digit($value) && (int) $value > 0 ? (int) $value / 1000 : 10.0;
+    }
+
+    return 10.0;
+};
+
 return [
     'rasuvaeff/yii3-telemetry-otel' => [
         // Standard OTel kill switch: OTEL_SDK_DISABLED=true binds the no-op
@@ -16,10 +32,23 @@ return [
         'content_type' => (getenv('OTEL_EXPORTER_OTLP_PROTOCOL') ?: 'http/protobuf') === 'http/json'
             ? 'application/json'
             : 'application/x-protobuf',
+        // Per-request OTLP export timeout, seconds (float). From
+        // OTEL_EXPORTER_OTLP_TRACES_TIMEOUT / OTEL_EXPORTER_OTLP_TIMEOUT (ms).
+        // Export is synchronous: for web use a local collector agent and 1–2 s.
+        'timeout' => $otlpTimeout(),
+        // Retries after the first failed export attempt (package-specific, no
+        // OTel env var). 0 disables retries; the SDK default is 3.
+        'max_retries' => 3,
+        // Initial retry back-off, milliseconds (doubles per attempt).
+        'retry_delay_ms' => 100,
         'batch' => true,
         // Exact request paths OtelMiddleware skips — scrape/probe endpoints
         // (Prometheus polls /metrics every few seconds; tracing that is noise).
         'excluded_paths' => [],
+        // Console commands ConsoleCommandSpanListener does NOT wrap in a root
+        // span (long-running workers: one span for days is useless). Exact
+        // names, or a prefix when the entry ends with `*` (e.g. 'outbox:*').
+        'excluded_commands' => ['queue:listen', 'queue:listen-all'],
         // url.query attribute on the root span (sensitive values masked).
         'capture_query' => true,
         // Opt-in: query/form/JSON-body params as http.request.param.* attributes

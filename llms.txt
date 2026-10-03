@@ -32,6 +32,12 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   via SpanFlusher on a timer), `content_type` (protobuf default; honours
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
   OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise),
+  `timeout` (10.0 s; from OTEL_EXPORTER_OTLP_TRACES_TIMEOUT, then
+  OTEL_EXPORTER_OTLP_TIMEOUT — milliseconds per spec; invalid → default),
+  `max_retries` (3; 0 = no retries), `retry_delay_ms` (100),
+  `excluded_commands` (['queue:listen','queue:listen-all'] — console commands
+  ConsoleCommandSpanListener skips: exact name or `prefix*`; long-running workers
+  must not get a days-long root span),
   `capture_query` (true — url.query attr, sensitive values masked '***'),
   `capture_request_params` (false, OPT-IN — query/form/JSON-body params as
   http.request.param.<name>, masked + truncated 200 chars, bodies ≤ 8 KiB).
@@ -52,7 +58,9 @@ $tracer->trace('op', static fn ($span) => $span->setAttribute('k', 'v'));
 
 `OtelTracerProviderFactory::create(SpanExporterInterface)` — batch processor by
 default; `batch: false` = SimpleSpanProcessor (immediate, for tests).
-`OtlpExporterFactory::create(string $endpoint = 'http://localhost:4318', string $contentType = 'application/x-protobuf')`.
+`OtlpExporterFactory::create(string $endpoint = 'http://localhost:4318', string $contentType = 'application/x-protobuf', float $timeout = 10.0, int $maxRetries = 3, int $retryDelayMs = 100)`
+(timeout in seconds; defaults = SDK defaults). Export is synchronous: for web use a
+local collector agent + short timeout (1-2 s) and 0-1 retries.
 
 ### Middleware (PSR-15)
 
@@ -85,6 +93,9 @@ $request     = (new TraceContextInjector())->inject($clientRequest);   // adds t
 // children = DB/HTTP spans; exit code != 0 => Error. Needs yiisoft/yii-console.
 ApplicationStartup::class => [[ConsoleCommandSpanListener::class, 'onStartup']],
 ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
+// ConsoleCommandSpanListener(provider, tracerName, array $excludedCommands =
+// ['queue:listen','queue:listen-all']): excluded commands get no span; per-message
+// spans come from queue consume code (rasuvaeff/yii3-telemetry#29).
 ```
 
 ### Flush (long-running)

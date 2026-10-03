@@ -61,6 +61,10 @@ Operational toggles in `params.php` (overridable in your app params):
 | `enabled` | `true` (honours `OTEL_SDK_DISABLED=true`) | `false` binds the no-op `NullTracerProvider` — nothing is built or exported, no error-log noise from an unreachable collector |
 | `content_type` | `application/x-protobuf` (honours `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | OTLP/HTTP payload encoding for a verified OTLP receiver such as the OTel Collector, Tempo, or Jaeger |
 | `excluded_paths` | `[]` | exact request paths `OtelMiddleware` skips — scrape/probe endpoints (`/metrics`, `/health`): Prometheus polling every few seconds floods the tracing backend with identical traces |
+| `excluded_commands` | `['queue:listen', 'queue:listen-all']` | console commands `ConsoleCommandSpanListener` does not wrap in a root span — exact names, or a prefix when the entry ends with `*` (`outbox:*`); see Long-running commands |
+| `timeout` | `10.0` s (honours `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, then `OTEL_EXPORTER_OTLP_TIMEOUT` — **milliseconds** per the OTel spec, converted to seconds) | per-request OTLP export timeout; a non-numeric or non-positive env value falls back to the default |
+| `max_retries` | `3` | retries after the first failed export attempt (package-specific, no OTel env var); `0` disables retries |
+| `retry_delay_ms` | `100` | initial retry back-off in milliseconds |
 | `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level |
 | `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
 | `batch` | `true` | batch span processor (see flushing below) |
@@ -161,6 +165,36 @@ register_shutdown_function(static fn (): bool => $flusher->flush());
 // RoadRunner: call $flusher->flush() on worker stop instead.
 ```
 
+### Collector down / latency
+
+Export is **synchronous** in PHP: the OTLP request blocks the process that
+flushes. The package is fail-open on errors, but not on latency. With the SDK
+defaults (10 s timeout, 3 retries with back-off) a hanging collector can pin one
+worker for tens of seconds per flush.
+
+On php-fpm the shutdown flush runs after `fastcgi_finish_request()`, so the
+client no longer waits — but the **FPM worker stays busy** until the export ends,
+and under load a slow collector exhausts the pool.
+
+Recommended production setup:
+
+- run a **local collector agent** (sidecar / host daemon) so the export is a
+  loopback call, and let the agent forward to the backend;
+- for web set a short timeout and few retries:
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=1500   # milliseconds
+```
+
+```php
+// config/params.php
+'rasuvaeff/yii3-telemetry-otel' => [
+    'max_retries' => 0, // 0-1 for web; keep the default for cron/workers
+],
+```
+
+Manual wiring: `(new OtlpExporterFactory())->create($endpoint, $contentType, timeout: 1.5, maxRetries: 0, retryDelayMs: 100)`.
+
 ### Console commands
 
 `OtelMiddleware` is web-only. For console commands (cron!) register
@@ -180,6 +214,26 @@ return [
     ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
 ];
 ```
+
+#### Long-running commands
+
+`queue:listen` and other daemon loops would keep one root span open for hours or
+days: every processed job becomes its child (unrelated messages share a trace),
+the span is exported only when the process stops (never on SIGKILL), and its
+duration is meaningless. So the listener opens **no** span for commands listed in
+`excluded_commands` (default `['queue:listen', 'queue:listen-all']`). Entries
+match the command name exactly, or as a prefix when they end with `*`:
+
+```php
+'rasuvaeff/yii3-telemetry-otel' => [
+    'excluded_commands' => ['queue:listen', 'queue:listen-all', 'outbox:*'],
+],
+```
+
+The listener is bound in `config/di.php` with this param; keep resolving it from
+the container. Per-message spans should come from the queue consume code — see
+the queue tracing in `rasuvaeff/yii3-telemetry`
+([rasuvaeff/yii3-telemetry#29](https://github.com/rasuvaeff/yii3-telemetry/issues/29)).
 
 For ad-hoc scripts without yii-console, `trace()` still works:
 

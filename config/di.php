@@ -7,6 +7,7 @@ use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Trace\TracerProviderInterface as OtelSdkTracerProviderInterface;
 use Rasuvaeff\Yii3Telemetry\NullTracerProvider;
 use Rasuvaeff\Yii3Telemetry\TracerProviderInterface;
+use Rasuvaeff\Yii3TelemetryOtel\ConsoleCommandSpanListener;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
 use Rasuvaeff\Yii3TelemetryOtel\OtlpExporterFactory;
@@ -24,7 +25,22 @@ return [
     SpanExporterInterface::class => static fn (OtlpExporterFactory $factory): SpanExporterInterface => $factory->create(
         (string) $params['rasuvaeff/yii3-telemetry-otel']['endpoint'],
         (string) ($params['rasuvaeff/yii3-telemetry-otel']['content_type'] ?? 'application/x-protobuf'),
+        (float) ($params['rasuvaeff/yii3-telemetry-otel']['timeout'] ?? OtlpExporterFactory::DEFAULT_TIMEOUT),
+        (int) ($params['rasuvaeff/yii3-telemetry-otel']['max_retries'] ?? OtlpExporterFactory::DEFAULT_MAX_RETRIES),
+        (int) ($params['rasuvaeff/yii3-telemetry-otel']['retry_delay_ms'] ?? OtlpExporterFactory::DEFAULT_RETRY_DELAY_MS),
     ),
+
+    // Console listener (registered app-side in the console events config).
+    // Excluded commands (long-running workers) get no root span.
+    ConsoleCommandSpanListener::class => [
+        'class' => ConsoleCommandSpanListener::class,
+        '__construct()' => [
+            'excludedCommands' => array_values(array_map(
+                strval(...),
+                (array) ($params['rasuvaeff/yii3-telemetry-otel']['excluded_commands'] ?? ['queue:listen', 'queue:listen-all']),
+            )),
+        ],
+    ],
 
     OtelSdkTracerProviderInterface::class => static function (SpanExporterInterface $exporter) use ($params): OtelSdkTracerProviderInterface {
         $config = $params['rasuvaeff/yii3-telemetry-otel'];

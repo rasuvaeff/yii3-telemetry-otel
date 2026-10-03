@@ -61,6 +61,10 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 | `enabled` | `true` (учитывает `OTEL_SDK_DISABLED=true`) | `false` биндит no-op `NullTracerProvider` — ничего не строится и не экспортируется, в error-log нет шума от недоступного коллектора |
 | `content_type` | `application/x-protobuf` (учитывает `OTEL_EXPORTER_OTLP_PROTOCOL`: `http/json` → JSON) | кодировка payload'а OTLP/HTTP для настоящего OTLP-приёмника: OTel Collector, Tempo или Jaeger |
 | `excluded_paths` | `[]` | точные пути запросов, которые `OtelMiddleware` пропускает — scrape/probe-эндпоинты (`/metrics`, `/health`): Prometheus, опрашивающий их каждые несколько секунд, заваливает backend трассировки одинаковыми трассами |
+| `excluded_commands` | `['queue:listen', 'queue:listen-all']` | консольные команды, которые `ConsoleCommandSpanListener` не оборачивает в корневой span — точные имена или префикс, если запись оканчивается на `*` (`outbox:*`); см. «Долгоживущие команды» |
+| `timeout` | `10.0` с (учитывает `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, затем `OTEL_EXPORTER_OTLP_TIMEOUT` — **миллисекунды** по спецификации OTel, переводятся в секунды) | таймаут одного OTLP-запроса экспорта; нечисловое или неположительное значение env заменяется значением по умолчанию |
+| `max_retries` | `3` | число повторов после первой неудачной попытки экспорта (параметр пакета, переменной OTel нет); `0` отключает повторы |
+| `retry_delay_ms` | `100` | начальная задержка перед повтором, мс |
 | `capture_query` | `true` | `url.query` на корневом span'е; значения ключей, похожих на чувствительные (`password`, `token`, `api_key`, …), заменяются на `***` на любом уровне вложенности |
 | `capture_request_params` | `false` — **включать осознанно** (в payload запроса могут быть персональные данные) | пишет каждый query/form/top-level JSON-параметр как `http.request.param.<name>`; чувствительные ключи маскируются, значения обрезаются до 200 символов, JSON-тела больше 8 KiB пропускаются |
 | `batch` | `true` | batch-процессор span'ов (о сбросе — ниже) |
@@ -166,6 +170,36 @@ register_shutdown_function(static fn (): bool => $flusher->flush());
 // RoadRunner: вместо этого вызывайте $flusher->flush() при остановке воркера.
 ```
 
+### Коллектор недоступен / задержки
+
+Экспорт в PHP **синхронный**: OTLP-запрос блокирует процесс, который делает
+flush. Пакет не падает при ошибках, но не защищён от задержек. С настройками SDK
+по умолчанию (таймаут 10 с, 3 повтора с back-off) зависший коллектор может держать
+один воркер десятки секунд на каждый flush.
+
+На php-fpm shutdown-flush выполняется после `fastcgi_finish_request()`, поэтому
+клиент уже не ждёт, но **воркер FPM остаётся занят** до конца экспорта, и под
+нагрузкой медленный коллектор исчерпывает пул.
+
+Рекомендуемая схема для production:
+
+- **локальный агент-коллектор** (sidecar / демон на хосте): экспорт идёт на
+  loopback, а агент сам пересылает данные в backend;
+- для web — короткий таймаут и мало повторов:
+
+```bash
+OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=1500   # миллисекунды
+```
+
+```php
+// config/params.php
+'rasuvaeff/yii3-telemetry-otel' => [
+    'max_retries' => 0, // 0-1 для web; для cron/воркеров можно оставить по умолчанию
+],
+```
+
+Ручная сборка: `(new OtlpExporterFactory())->create($endpoint, $contentType, timeout: 1.5, maxRetries: 0, retryDelayMs: 100)`.
+
 ### Консольные команды
 
 `OtelMiddleware` работает только для web. Для консольных команд (и особенно для
@@ -186,6 +220,27 @@ return [
     ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
 ];
 ```
+
+#### Долгоживущие команды
+
+`queue:listen` и другие демоны держали бы один корневой span часами или днями:
+каждое обработанное задание становится его потомком (несвязанные сообщения
+попадают в одну трассу), span экспортируется только при остановке процесса (при
+SIGKILL — никогда), а его длительность бессмысленна. Поэтому для команд из
+`excluded_commands` (по умолчанию `['queue:listen', 'queue:listen-all']`) листенер
+span не открывает. Запись совпадает с именем команды точно либо как префикс, если
+оканчивается на `*`:
+
+```php
+'rasuvaeff/yii3-telemetry-otel' => [
+    'excluded_commands' => ['queue:listen', 'queue:listen-all', 'outbox:*'],
+],
+```
+
+Листенер привязан в `config/di.php` с этим параметром — получайте его из
+контейнера. Span'ы на каждое сообщение должен создавать код потребления очереди —
+см. трассировку очередей в `rasuvaeff/yii3-telemetry`
+([rasuvaeff/yii3-telemetry#29](https://github.com/rasuvaeff/yii3-telemetry/issues/29)).
 
 Для разовых скриптов без yii-console по-прежнему работает `trace()`:
 

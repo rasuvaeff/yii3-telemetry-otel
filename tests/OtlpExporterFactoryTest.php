@@ -27,4 +27,34 @@ final class OtlpExporterFactoryTest
 
         Assert::instanceOf($exporter, SpanExporterInterface::class);
     }
+
+    public function passesTimeoutAndRetriesToTheTransport(): void
+    {
+        $recorder = new RecordingTransportFactory();
+
+        (new OtlpExporterFactory($recorder))->create(
+            'http://collector:4318/',
+            'application/json',
+            1.5,
+            1,
+            250,
+        );
+
+        Assert::same($recorder->endpoint, 'http://collector:4318/v1/traces');
+        Assert::same($recorder->contentType, 'application/json');
+        Assert::same($recorder->timeout, 1.5);
+        Assert::same($recorder->maxRetries, 1);
+        Assert::same($recorder->retryDelay, 250);
+    }
+
+    public function defaultsEqualTheSdkTransportDefaults(): void
+    {
+        $recorder = new RecordingTransportFactory();
+
+        (new OtlpExporterFactory($recorder))->create();
+
+        Assert::same($recorder->timeout, 10.0);
+        Assert::same($recorder->maxRetries, 3);
+        Assert::same($recorder->retryDelay, 100);
+    }
 }

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.1.0 — 2026-10-03
+
+### Added
+
+- `OtlpExporterFactory::create()` takes trailing `float $timeout`, `int $maxRetries`
+  and `int $retryDelayMs` (defaults equal the SDK transport defaults: 10 s, 3, 100 ms),
+  and the factory accepts an optional `TransportFactoryInterface` in its constructor
+  (a test seam). Closes #17.
+- Params `timeout` (from `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, then
+  `OTEL_EXPORTER_OTLP_TIMEOUT`, milliseconds per the OTel spec; invalid → default),
+  `max_retries` and `retry_delay_ms`, wired through `config/di.php`.
+- README: "Collector down / latency" section (synchronous export, local collector
+  agent, short timeout, FPM worker occupancy).
+- `ConsoleCommandSpanListener` takes `array $excludedCommands` and is bound in
+  `config/di.php` from the new `excluded_commands` param. Closes #18.
+
+### Changed
+
+- **Behaviour change:** `ConsoleCommandSpanListener` no longer opens a root span for
+  `queue:listen` and `queue:listen-all` (default `excluded_commands`). A root span
+  living for days with every job nested under it was misleading; per-message spans
+  should come from queue consume code. Set `excluded_commands` to `[]` to restore
+  the old behaviour. Entries match exactly or, ending with `*`, as a prefix.
+
 ## 1.0.2 — 2026-07-26
 
 - Rewrite `README.ru.md`. It had been machine-translated: package, class and

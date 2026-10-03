@@ -29,6 +29,11 @@ use Yiisoft\Yii\Console\Event\ApplicationStartup;
  * ApplicationShutdown::class => [[ConsoleCommandSpanListener::class, 'onShutdown']],
  * ```
  *
+ * Long-running commands (`queue:listen`, daemons) must not get a root span: it
+ * would live for days with every job nested under it. List them in
+ * `$excludedCommands` — exact names, or a prefix when the entry ends with `*`
+ * (e.g. `outbox:*`). Per-message spans belong in the consume code.
+ *
  * Remember the flush: console processes exit after one command, so keep
  * `register_shutdown_flush` enabled (the default) or the span is lost.
  *
@@ -41,14 +46,22 @@ final class ConsoleCommandSpanListener
     private ?OtelSpanInterface $span = null;
     private ?ScopeInterface $scope = null;
 
+    /**
+     * @param list<string> $excludedCommands exact names or `prefix*` patterns
+     */
     public function __construct(
         private readonly OtelTracerProviderInterface $provider,
         private readonly string $tracerName = 'rasuvaeff/yii3-telemetry-otel',
+        private readonly array $excludedCommands = ['queue:listen', 'queue:listen-all'],
     ) {}
 
     public function onStartup(ApplicationStartup $event): void
     {
         $command = $event->commandName ?? '';
+
+        if ($this->isExcluded($command)) {
+            return;
+        }
 
         $span = $this->provider
             ->getTracer($this->tracerName)
@@ -77,5 +90,24 @@ final class ConsoleCommandSpanListener
 
         $this->span = null;
         $this->scope = null;
+    }
+
+    private function isExcluded(string $command): bool
+    {
+        foreach ($this->excludedCommands as $pattern) {
+            if (str_ends_with($pattern, '*')) {
+                if (str_starts_with($command, substr($pattern, 0, -1))) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if ($command === $pattern) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -42,6 +42,15 @@ return [
         // Initial retry back-off, milliseconds (doubles per attempt).
         'retry_delay_ms' => 100,
         'batch' => true,
+        // Batch processor controls. Null keeps the OpenTelemetry SDK defaults
+        // and allows OTEL_BSP_* environment variables to apply.
+        'max_queue_size' => null,
+        'max_export_batch_size' => null,
+        'scheduled_delay_ms' => null,
+        'export_timeout_ms' => null,
+        // true preserves the SDK default and may export synchronously from
+        // span end; false defers export to SpanFlusher/shutdown.
+        'auto_flush' => null,
         // Exact request paths OtelMiddleware skips — scrape/probe endpoints
         // (Prometheus polls /metrics every few seconds; tracing that is noise).
         'excluded_paths' => [],
@@ -51,10 +60,15 @@ return [
         'excluded_commands' => ['queue:listen', 'queue:listen-all'],
         // url.query attribute on the root span (sensitive values masked).
         'capture_query' => true,
+        // Hard limits prevent an attacker-controlled query from becoming a
+        // large span attribute. Set to 0 to skip query capture entirely.
+        'max_query_bytes' => 4096,
         // Opt-in: query/form/JSON-body params as http.request.param.* attributes
         // (sensitive keys masked, values truncated). Off by default — request
         // payloads may carry personal data; enable consciously.
         'capture_request_params' => false,
+        'max_request_params' => 50,
+        'request_param_allowlist' => [],
         // Registers a shutdown flush for the batch processor. Correct default
         // everywhere: on php-fpm it runs at request end (after
         // fastcgi_finish_request — batch-buffered spans would otherwise be LOST

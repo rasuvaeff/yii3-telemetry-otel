@@ -8,6 +8,7 @@ use GuzzleHttp\Psr7\StreamDecoratorTrait;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use OpenTelemetry\API\Trace\Span;
+use OpenTelemetry\SDK\Trace\Sampler\AlwaysOffSampler;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -262,6 +263,64 @@ final class OtelMiddlewareTest
         );
 
         Assert::false($this->onlySpan()->getAttributes()->has('url.query'));
+    }
+
+    public function requestCaptureSkipsNonRecordingSpans(): void
+    {
+        $exporter = new InMemoryExporter(new \ArrayObject());
+        $provider = (new OtelTracerProviderFactory(batch: false, sampler: new AlwaysOffSampler()))->create($exporter);
+        $tracer = (new OtelTracerProvider($provider))->getTracer();
+
+        (new OtelMiddleware($tracer, new TraceContextExtractor(), captureRequestParams: true))
+            ->process(
+                $this->factory->createServerRequest('GET', 'https://api.example/x?token=secret'),
+                $this->handler(200),
+            );
+
+        Assert::count($exporter->getSpans(), 0);
+    }
+
+    public function requestCaptureHonoursQueryAndParameterLimits(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureQuery: true,
+            captureRequestParams: true,
+            maxQueryBytes: 4,
+            maxRequestParams: 1,
+        );
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x?long=value')
+                ->withQueryParams(['first' => '1', 'second' => '2']),
+            $this->handler(200),
+        );
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::false($attributes->has('url.query'));
+        Assert::same($attributes->get('http.request.param.first'), '1');
+        Assert::false($attributes->has('http.request.param.second'));
+    }
+
+    public function requestCaptureHonoursParameterAllowlist(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureRequestParams: true,
+            requestParamAllowlist: ['keep'],
+        );
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x')
+                ->withQueryParams(['keep' => 'yes', 'drop' => 'no']),
+            $this->handler(200),
+        );
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.keep'), 'yes');
+        Assert::false($attributes->has('http.request.param.drop'));
     }
 
     private function resolver(?string $route): RouteNameResolverInterface

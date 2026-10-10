@@ -65,9 +65,20 @@ Operational toggles in `params.php` (overridable in your app params):
 | `timeout` | `10.0` s (honours `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, then `OTEL_EXPORTER_OTLP_TIMEOUT` — **milliseconds** per the OTel spec, converted to seconds) | per-request OTLP export timeout; a non-numeric or non-positive env value falls back to the default |
 | `max_retries` | `3` | retries after the first failed export attempt (package-specific, no OTel env var); `0` disables retries |
 | `retry_delay_ms` | `100` | initial retry back-off in milliseconds |
-| `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level |
+| `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level. Queries larger than `max_query_bytes` are skipped |
+| `max_query_bytes` | `4096` | maximum query-string bytes inspected; `0` disables query capture |
 | `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
+| `max_request_params` | `50` | maximum number of request parameter attributes |
+| `request_param_allowlist` | `[]` | when non-empty, only listed parameter names are recorded |
+
+Request data is inspected only when the sampler keeps the span. For production,
+disable query and payload capture unless those attributes are required.
 | `batch` | `true` | batch span processor (see flushing below) |
+| `max_queue_size` | `null` | maximum queued spans; `null` uses `OTEL_BSP_MAX_QUEUE_SIZE`/SDK default; spans are dropped when full |
+| `max_export_batch_size` | `null` | spans per export batch; `null` uses `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`/SDK default |
+| `scheduled_delay_ms` | `null` | scheduled flush delay; `null` uses `OTEL_BSP_SCHEDULE_DELAY`/SDK default |
+| `export_timeout_ms` | `null` | batch export timeout; `null` uses `OTEL_BSP_EXPORT_TIMEOUT`/SDK default |
+| `auto_flush` | `null` | flush on span end when `true` (SDK default); set `false` to defer I/O to `SpanFlusher` or shutdown |
 | `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
 | `finish_request_before_flush` | `true` | calls `fastcgi_finish_request()` before the flush, so the client never waits for the OTLP round-trip (~100 ms measured without it — Yii3's SAPI emitter does not finish the request itself). Disable only if other shutdown functions still write to the response |
 
@@ -108,6 +119,21 @@ incoming decision). To hardcode a sampler instead, pass it to the factory:
 `new OtelTracerProviderFactory(serviceName: '...', sampler: new AlwaysOffSampler())`.
 A dropped trace still runs your callback — `$span` is simply non-recording (the
 frozen core contract).
+
+### Standalone Yii DI example
+
+`examples/05_yii_di.php` loads the shipped `config/di.php` and `config/di-web.php`
+definitions, resolves the SDK provider and core `Tracer` binding, and runs the
+middleware with an in-memory exporter. It needs no collector:
+
+```bash
+composer require rasuvaeff/yii3-telemetry-otel nyholm/psr7
+php examples/05_yii_di.php
+```
+
+In a real Yii application, merge these package config files through the normal
+Yii config plugin, keep `OtelMiddleware` near the start of the PSR-15 stack, and
+set `OTEL_SERVICE_NAME` plus `OTEL_EXPORTER_OTLP_ENDPOINT` for production OTLP.
 
 ### Build a provider manually
 
@@ -172,6 +198,14 @@ flushes. The package is fail-open on errors, but not on latency. With the SDK
 defaults (10 s timeout, 3 retries with back-off) a hanging collector can pin one
 worker for tens of seconds per flush.
 
+The batch processor queue is bounded. When `max_queue_size` is reached, newly
+ended sampled spans are dropped until queued spans are exported. With
+`auto_flush: true`, the SDK may export synchronously from `span->end()` when a
+batch threshold or schedule is reached; set `auto_flush: false` when span
+completion must not perform export I/O, and call `SpanFlusher::flush()` from a
+worker timer or shutdown hook. Monitor the SDK processor queue and dropped-span
+counters when tuning these limits.
+
 On php-fpm the shutdown flush runs after `fastcgi_finish_request()`, so the
 client no longer waits — but the **FPM worker stays busy** until the export ends,
 and under load a slow collector exhausts the pool.
@@ -192,6 +226,17 @@ OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=1500   # milliseconds
     'max_retries' => 0, // 0-1 for web; keep the default for cron/workers
 ],
 ```
+
+### Async context boundaries
+
+The OTel context storage used by this package is fiber-aware on supported PHP
+builds. Start and finish each outgoing client span in the same `Fiber`; the
+`TraceContextInjector` then injects that client's span id even when multiple
+requests are suspended and resumed in an interleaved order. `trace()` and
+middleware scopes detach in `finally`, including exception paths, so settling a
+promise must not leave a span active. This guarantee covers PHP fibers and the
+SDK's context storage only. Swoole, event-loop, and other coroutine runtimes
+need their own context integration and must not assume generic safety.
 
 Manual wiring: `(new OtlpExporterFactory())->create($endpoint, $contentType, timeout: 1.5, maxRetries: 0, retryDelayMs: 100)`.
 

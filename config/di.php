@@ -48,6 +48,11 @@ return [
         $provider = (new OtelTracerProviderFactory(
             serviceName: (string) $config['service_name'],
             batch: (bool) $config['batch'],
+            maxQueueSize: isset($config['max_queue_size']) ? (int) $config['max_queue_size'] : null,
+            scheduledDelayMillis: isset($config['scheduled_delay_ms']) ? (int) $config['scheduled_delay_ms'] : null,
+            exportTimeoutMillis: isset($config['export_timeout_ms']) ? (int) $config['export_timeout_ms'] : null,
+            maxExportBatchSize: isset($config['max_export_batch_size']) ? (int) $config['max_export_batch_size'] : null,
+            autoFlush: isset($config['auto_flush']) ? (bool) $config['auto_flush'] : null,
         ))->create($exporter);
 
         // `new TracerProvider(...)` registers NO automatic shutdown flush; on

@@ -65,9 +65,20 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 | `timeout` | `10.0` с (учитывает `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT`, затем `OTEL_EXPORTER_OTLP_TIMEOUT` — **миллисекунды** по спецификации OTel, переводятся в секунды) | таймаут одного OTLP-запроса экспорта; нечисловое или неположительное значение env заменяется значением по умолчанию |
 | `max_retries` | `3` | число повторов после первой неудачной попытки экспорта (параметр пакета, переменной OTel нет); `0` отключает повторы |
 | `retry_delay_ms` | `100` | начальная задержка перед повтором, мс |
-| `capture_query` | `true` | `url.query` на корневом span'е; значения ключей, похожих на чувствительные (`password`, `token`, `api_key`, …), заменяются на `***` на любом уровне вложенности |
-| `capture_request_params` | `false` — **включать осознанно** (в payload запроса могут быть персональные данные) | пишет каждый query/form/top-level JSON-параметр как `http.request.param.<name>`; чувствительные ключи маскируются, значения обрезаются до 200 символов, JSON-тела больше 8 KiB пропускаются |
+| `capture_query` | `true` | `url.query` на корневом span'е; чувствительные значения (`password`, `token`, `api_key`, …) заменяются на `***`; query длиннее `max_query_bytes` пропускается |
+| `max_query_bytes` | `4096` | максимальный размер query для обработки; `0` полностью отключает query capture |
+| `capture_request_params` | `false` — **включать осознанно** (в payload запроса могут быть персональные данные) | пишет query/form/top-level JSON-параметры как `http.request.param.<name>`; чувствительные ключи маскируются, значения обрезаются до 200 символов, JSON-тела больше 8 KiB пропускаются |
+| `max_request_params` | `50` | максимальное число атрибутов параметров запроса |
+| `request_param_allowlist` | `[]` | если список непустой, записываются только указанные имена параметров |
+
+Данные запроса разбираются только если sampler оставил span записываемым. Для
+production рекомендуется отключить query и payload capture, если эти атрибуты не нужны.
 | `batch` | `true` | batch-процессор span'ов (о сбросе — ниже) |
+| `max_queue_size` | `null` | максимальная очередь; `null` использует `OTEL_BSP_MAX_QUEUE_SIZE`/значение SDK; при переполнении новые span'ы теряются |
+| `max_export_batch_size` | `null` | размер экспортируемой пачки; `null` использует `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`/значение SDK |
+| `scheduled_delay_ms` | `null` | задержка планового сброса; `null` использует `OTEL_BSP_SCHEDULE_DELAY`/значение SDK |
+| `export_timeout_ms` | `null` | timeout batch-экспорта; `null` использует `OTEL_BSP_EXPORT_TIMEOUT`/значение SDK |
+| `auto_flush` | `null` | сбрасывать при завершении span (`true`, значение SDK); `false` откладывает I/O до `SpanFlusher` или shutdown |
 | `register_shutdown_flush` | `true` | регистрирует shutdown-хук, сбрасывающий batch-процессор — правильное значение по умолчанию для php-fpm и CLI; отключайте на RoadRunner/Swoole, если сбрасываете через `SpanFlusher` по таймеру |
 | `finish_request_before_flush` | `true` | вызывает `fastcgi_finish_request()` перед сбросом, чтобы клиент не ждал OTLP round-trip (без него замерено ~100 мс — SAPI-эмиттер Yii3 сам запрос не завершает). Отключайте, только если другие shutdown-функции ещё пишут в ответ |
 
@@ -111,6 +122,21 @@ OTEL_TRACES_SAMPLER_ARG=0.1   # оставить 10% новых трасс
 `new OtelTracerProviderFactory(serviceName: '...', sampler: new AlwaysOffSampler())`.
 Отброшенная трасса всё равно выполняет ваш callback — `$span` просто ничего не
 записывает (зафиксированный контракт ядра).
+
+### Отдельный пример Yii DI
+
+`examples/05_yii_di.php` загружает определения из `config/di.php` и
+`config/di-web.php`, разрешает цепочку SDK provider → core `Tracer` и запускает
+middleware с in-memory экспортёром. Collector не нужен:
+
+```bash
+composer require rasuvaeff/yii3-telemetry-otel nyholm/psr7
+php examples/05_yii_di.php
+```
+
+В настоящем Yii-приложении подключайте эти config-файлы обычным config plugin,
+ставьте `OtelMiddleware` в начале PSR-15 stack и задавайте для production
+`OTEL_SERVICE_NAME` и `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 ### Ручная сборка провайдера
 
@@ -177,6 +203,14 @@ flush. Пакет не падает при ошибках, но не защищ�
 по умолчанию (таймаут 10 с, 3 повтора с back-off) зависший коллектор может держать
 один воркер десятки секунд на каждый flush.
 
+Очередь batch-процессора ограничена. При достижении `max_queue_size` новые
+отобранные span'ы теряются до освобождения очереди. При `auto_flush: true` SDK
+может выполнять экспорт синхронно внутри `span->end()`, когда достигнут размер
+пачки или срок сброса; установите `auto_flush: false`, если завершение span не
+должно выполнять I/O, и вызывайте `SpanFlusher::flush()` по таймеру worker'а или
+в shutdown-хуке. При настройке лимитов отслеживайте метрики очереди и потерь
+span'ов процессора SDK.
+
 На php-fpm shutdown-flush выполняется после `fastcgi_finish_request()`, поэтому
 клиент уже не ждёт, но **воркер FPM остаётся занят** до конца экспорта, и под
 нагрузкой медленный коллектор исчерпывает пул.
@@ -197,6 +231,17 @@ OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=1500   # миллисекунды
     'max_retries' => 0, // 0-1 для web; для cron/воркеров можно оставить по умолчанию
 ],
 ```
+
+### Границы асинхронного контекста
+
+Хранилище контекста OTel в пакете учитывает `Fiber` на поддерживаемых сборках
+PHP. Начинайте и завершайте span исходящего клиента в одном `Fiber`: тогда
+`TraceContextInjector` подставляет id именно этого клиента, даже если несколько
+запросов приостановлены и возобновляются вперемешку. `trace()` и middleware
+отсоединяют области в `finally`, включая исключения, поэтому завершение promise
+не оставляет span активным. Гарантия относится к PHP Fiber и хранилищу контекста
+SDK; для Swoole, event loop и других coroutine-runtime нужна собственная
+интеграция контекста, универсальная безопасность не предполагается.
 
 Ручная сборка: `(new OtlpExporterFactory())->create($endpoint, $contentType, timeout: 1.5, maxRetries: 0, retryDelayMs: 100)`.
 

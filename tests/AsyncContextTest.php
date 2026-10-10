@@ -6,6 +6,7 @@ namespace Rasuvaeff\Yii3TelemetryOtel\Tests;
 
 use Fiber;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use OpenTelemetry\Context\Context;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
@@ -26,20 +27,27 @@ final class AsyncContextTest
         $injector = new TraceContextInjector();
         $factory = new Psr17Factory();
         $headers = [];
+        $rootContext = Context::getCurrent();
 
-        $makeRequest = static function (string $name) use ($tracer, $injector, $factory, &$headers): Fiber {
-            return new Fiber(static function () use ($name, $tracer, $injector, $factory, &$headers): void {
-                $tracer->trace('root.' . $name, static function () use ($name, $tracer, $injector, $factory, &$headers): void {
-                    $tracer->trace('http.client.' . $name, static function () use ($name, $tracer, $injector, $factory, &$headers): void {
-                        $request = $injector->inject($factory->createRequest('GET', 'https://downstream/' . $name));
-                        $headers[$name] = [
-                            $request->getHeaderLine('traceparent'),
-                            $tracer->getContext()->spanId,
-                        ];
-                        Fiber::suspend();
-                        Assert::same($tracer->getContext()->spanId, $headers[$name][1]);
+        $makeRequest = static function (string $name) use ($tracer, $injector, $factory, &$headers, $rootContext): Fiber {
+            return new Fiber(static function () use ($name, $tracer, $injector, $factory, &$headers, $rootContext): void {
+                $scope = $rootContext->activate();
+
+                try {
+                    $tracer->trace('root.' . $name, static function () use ($name, $tracer, $injector, $factory, &$headers): void {
+                        $tracer->trace('http.client.' . $name, static function () use ($name, $tracer, $injector, $factory, &$headers): void {
+                            $request = $injector->inject($factory->createRequest('GET', 'https://downstream/' . $name));
+                            $headers[$name] = [
+                                $request->getHeaderLine('traceparent'),
+                                $tracer->getContext()->spanId,
+                            ];
+                            Fiber::suspend();
+                            Assert::same($tracer->getContext()->spanId, $headers[$name][1]);
+                        });
                     });
-                });
+                } finally {
+                    $scope->detach();
+                }
             });
         };
 
@@ -65,12 +73,19 @@ final class AsyncContextTest
             new InMemoryExporter(new \ArrayObject()),
         );
         $tracer = (new OtelTracerProvider($provider))->getTracer();
-        $fiber = new Fiber(static function () use ($tracer): void {
-            $tracer->trace('failing-request', static function (): never {
-                Fiber::suspend();
+        $rootContext = Context::getCurrent();
+        $fiber = new Fiber(static function () use ($tracer, $rootContext): void {
+            $scope = $rootContext->activate();
 
-                throw new \RuntimeException('downstream failed');
-            });
+            try {
+                $tracer->trace('failing-request', static function (): never {
+                    Fiber::suspend();
+
+                    throw new \RuntimeException('downstream failed');
+                });
+            } finally {
+                $scope->detach();
+            }
         });
 
         $fiber->start();

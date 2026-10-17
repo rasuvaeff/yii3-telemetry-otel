@@ -27,9 +27,11 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   or pass `sampler:` to `OtelTracerProviderFactory` explicitly. Kill switch:
   `OTEL_SDK_DISABLED=true` (params `enabled`) binds the no-op NullTracerProvider.
 - Params toggles: `enabled` (default true), `batch` (true),
-  `register_shutdown_flush` (true — DI registers a shutdown flush; required on
-  php-fpm or batch-buffered spans are lost; disable on RR/Swoole when flushing
-  via SpanFlusher on a timer), `content_type` (protobuf default; honours
+  `register_shutdown_flush` (true — DI registers `ShutdownFlushHook`, which
+  calls `forceFlush()` at shutdown and NEVER `shutdown()`: safe on runtimes
+  where shutdown functions run per request (php-fpm, Rapira HTTP worker,
+  FrankenPHP worker mode); disable when flushing via SpanFlusher on a timer),
+  `content_type` (protobuf default; honours
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
   OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise),
   `timeout` (10.0 s; from OTEL_EXPORTER_OTLP_TRACES_TIMEOUT, then
@@ -105,8 +107,9 @@ use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
 
 $flusher = new SpanFlusher($sdkProvider); // forceFlush()
 // RoadRunner/Swoole: on worker stop / a timer — never per request.
-// php-fpm / CLI: no worker-shutdown hook exists; register once at bootstrap
-// (runs at the END of each request — accept it, or use batch: false):
+// php-fpm / CLI / per-request-shutdown workers: the DI wiring already registers
+// ShutdownFlushHook ($provider->forceFlush() at every request shutdown — the
+// provider stays usable, see yii3-telemetry-otel#26):
 register_shutdown_function(static fn (): bool => $flusher->flush());
 // No flush registered + batch processor = buffered spans LOST on fpm worker recycle.
 ```

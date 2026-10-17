@@ -68,8 +68,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
 | `capture_query` | `true` | `url.query` на корневом span'е; значения ключей, похожих на чувствительные (`password`, `token`, `api_key`, …), заменяются на `***` на любом уровне вложенности |
 | `capture_request_params` | `false` — **включать осознанно** (в payload запроса могут быть персональные данные) | пишет каждый query/form/top-level JSON-параметр как `http.request.param.<name>`; чувствительные ключи маскируются, значения обрезаются до 200 символов, JSON-тела больше 8 KiB пропускаются |
 | `batch` | `true` | batch-процессор span'ов (о сбросе — ниже) |
-| `register_shutdown_flush` | `true` | регистрирует shutdown-хук, сбрасывающий batch-процессор — правильное значение по умолчанию для php-fpm и CLI; отключайте на RoadRunner/Swoole, если сбрасываете через `SpanFlusher` по таймеру |
-| `finish_request_before_flush` | `true` | вызывает `fastcgi_finish_request()` перед сбросом, чтобы клиент не ждал OTLP round-trip (без него замерено ~100 мс — SAPI-эмиттер Yii3 сам запрос не завершает). Отключайте, только если другие shutdown-функции ещё пишут в ответ |
+| `register_shutdown_flush` | `true` | регистрирует shutdown-хук, делающий **force-flush** накопленных span'ов (`TracerProvider::forceFlush()` — провайдер **не** закрывается, поэтому хук безопасен даже там, где shutdown-функции срабатывают на каждый запрос, см. таблицу ниже). Правильное значение по умолчанию для php-fpm и CLI; отключайте, если сбрасываете через `SpanFlusher` по таймеру (RoadRunner/Swoole) |
+| `finish_request_before_flush` | `true` | shutdown-хук вызывает `fastcgi_finish_request()` перед сбросом, чтобы клиент не ждал OTLP round-trip (без него замерено ~100 мс — SAPI-эмиттер Yii3 сам запрос не завершает). Отключайте, только если другие shutdown-функции ещё пишут в ответ |
 
 ### Имена span'ов и `http.route`
 
@@ -146,6 +146,7 @@ $tracer->trace('checkout.process', static function ($span): void {
 | `OtelMiddleware` | PSR-15 корневой SERVER-span + извлечение входящего контекста |
 | `TraceContextExtractor` / `TraceContextInjector` | контекст W3C на вход и на выход |
 | `SpanFlusher` | `forceFlush()` для долгоживущих воркеров |
+| `ShutdownFlushHook` | shutdown-хук, регистрируемый DI: force-flush, провайдер никогда не закрывается |
 
 ### Закрытие span'ов и сброс экспортёра
 
@@ -153,12 +154,16 @@ Middleware закрывает корневой span в `finally` на каждо
 нет. Сброс batch-экспортёра — **отдельная** история: `new TracerProvider(...)` не
 регистрирует автоматический сброс на shutdown, поэтому при
 `register_shutdown_flush: true` (значение по умолчанию) DI-обвязка регистрирует
-его за вас:
+его за вас (`ShutdownFlushHook`); хук вызывает `forceFlush()` — экспортирует
+накопленное и оставляет провайдер рабочим, `shutdown()` он не вызывает никогда.
+Это делает хук безопасным на любой среде — включая те, где shutdown-функции
+срабатывают после **каждого запроса**:
 
 | Среда выполнения | При умолчании `register_shutdown_flush: true` |
 |---|---|
 | **php-fpm** | Хук срабатывает в **конце каждого запроса**, уже после отправки ответа через `fastcgi_finish_request` — один OTLP round-trip на запрос. На fpm это единственный корректный вариант: пользовательского хука на завершение воркера нет, а накопленные в batch span'ы **теряются**, когда fpm пересоздаёт воркер. (Альтернатива — `batch: false` / `SimpleSpanProcessor`: экспорт на каждый span) |
-| **RoadRunner / Swoole / FrankenPHP** | Хук срабатывает один раз при выходе воркера — это безопасно, но стоит рассмотреть `register_shutdown_flush: false` + `SpanFlusher::flush()` по таймеру или каждые N запросов: тогда падение теряет максимум один интервал |
+| **Rapira HTTP worker / FrankenPHP (worker mode)** | Здесь shutdown-функции тоже срабатывают после каждого запроса. Теперь хук делает force-flush на каждый запрос и оставляет провайдер рабочим — до исправления (хук с `shutdown()`) процессор закрывался после первого запроса, и **все последующие span'ы молча терялись** (#26) |
+| **RoadRunner / Swoole** | Force-flush хук срабатывает так же на каждый запрос/итерацию воркера. Если вместо этого сбрасываете через `SpanFlusher::flush()` по таймеру — ставьте `register_shutdown_flush: false`, тогда падение теряет максимум один интервал |
 | **CLI / cron** | Хук срабатывает один раз при выходе процесса — ровно то, что нужно |
 
 ```php

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.1.1 — 2026-10-17
+
+### Fixed
+
+- **The `register_shutdown_flush` hook no longer closes the span processor
+  after request 1 (#26).** Shutdown functions run **after every request** on
+  per-request-shutdown runtimes (Rapira's HTTP worker via `handle_request()`,
+  FrankenPHP worker mode); the hook called `$provider->shutdown()`, which sets
+  `$this->closed = true` on the span processor — every span of every later
+  request was silently dropped, nothing logged. The hook now calls
+  `forceFlush()` via the new public `ShutdownFlushHook` callable: the buffered
+  batch is exported and the provider stays usable. On php-fpm both behaviours
+  recycle with the process, so the change is safe there. Regression test: the
+  registered hook is invoked twice with spans in between — the second batch
+  must still be exported.
+
 ## 1.1.0 — 2026-10-03
 
 ### Added

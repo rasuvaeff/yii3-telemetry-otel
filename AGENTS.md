@@ -14,7 +14,8 @@ Namespace: `Rasuvaeff\Yii3TelemetryOtel`.
 Public API: `OtelTracerProvider` (implements core `TracerProviderInterface`),
 `OtelTracer`, `OtelSpan` (adapters), `OtelTracerProviderFactory`,
 `OtlpExporterFactory`, `OtelMiddleware` (PSR-15), `TraceContextExtractor`,
-`TraceContextInjector`, `SpanFlusher`, `RouteNameResolverInterface` /
+`TraceContextInjector`, `SpanFlusher`, `ShutdownFlushHook` (the DI-registered
+shutdown hook — force-flushes, never shuts the provider down), `RouteNameResolverInterface` /
 `CurrentRouteNameResolver` (semconv `{method} {route}` span names),
 `ConsoleCommandSpanListener` (root span per yii-console command; yiisoft/yii-console
 is require-dev + require-checker whitelist; with `enabled` off the OTel API
@@ -114,9 +115,12 @@ docker run --rm -v "$REPO":/repo -w /repo/yii3-telemetry-otel composer:2 \
   otherwise. NEVER name a span with the raw path.
 - **Params toggles**: `enabled` (honours `OTEL_SDK_DISABLED`; off → di.php binds
   core `NullTracerProvider` with a dependency-free closure — nothing OTel is
-  built) and `register_shutdown_flush` (default true; di.php registers
-  `$provider->shutdown()` via `register_shutdown_function`). `ConfigWiringTest`
-  covers both branches; keep it in sync.
+  built) and `register_shutdown_flush` (default true; di.php registers the
+  public `ShutdownFlushHook` callable via `register_shutdown_function` — it
+  calls `forceFlush()`, NEVER `$provider->shutdown()` #26: shutdown functions
+  run after every request on per-request-shutdown runtimes, and `shutdown()`
+  closed the span processor there, losing all later spans).
+  `ConfigWiringTest` covers both branches; keep it in sync.
 - Code: `declare(strict_types=1)`, `final readonly class`, `#[\Override]`,
   explicit types.
 - **CI workflows are SHA-pinned.** Every `uses:` references a 40-char commit SHA

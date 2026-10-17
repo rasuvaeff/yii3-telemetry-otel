@@ -2,7 +2,8 @@
     "symbol-whitelist": [
         "Yiisoft\\Router\\CurrentRoute",
         "Yiisoft\\Yii\\Console\\Event\\ApplicationStartup",
-        "Yiisoft\\Yii\\Console\\Event\\ApplicationShutdown"
+        "Yiisoft\\Yii\\Console\\Event\\ApplicationShutdown",
+        "fastcgi_finish_request"
     ],
     "php-core-extensions": [
         "Core",

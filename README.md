@@ -68,8 +68,8 @@ Operational toggles in `params.php` (overridable in your app params):
 | `capture_query` | `true` | `url.query` on the root span; values of sensitive-looking keys (`password`, `token`, `api_key`, …) are replaced by `***` at every nesting level |
 | `capture_request_params` | `false` — **opt in consciously** (request payloads may carry personal data) | records each query / form / top-level JSON-body parameter as `http.request.param.<name>`; sensitive keys masked, values truncated to 200 chars, JSON bodies over 8 KiB skipped |
 | `batch` | `true` | batch span processor (see flushing below) |
-| `register_shutdown_flush` | `true` | registers a shutdown hook that flushes the batch processor — the correct default on php-fpm and CLI; disable on RoadRunner/Swoole if you flush via `SpanFlusher` on a timer |
-| `finish_request_before_flush` | `true` | calls `fastcgi_finish_request()` before the flush, so the client never waits for the OTLP round-trip (~100 ms measured without it — Yii3's SAPI emitter does not finish the request itself). Disable only if other shutdown functions still write to the response |
+| `register_shutdown_flush` | `true` | registers a shutdown hook that **force-flushes** buffered spans (`TracerProvider::forceFlush()` — the provider is *not* shut down, so the hook stays safe where shutdown functions run per request, see the table below). The correct default on php-fpm and CLI; disable if you flush via `SpanFlusher` on a timer (RoadRunner/Swoole) |
+| `finish_request_before_flush` | `true` | the shutdown hook calls `fastcgi_finish_request()` before the flush, so the client never waits for the OTLP round-trip (~100 ms measured without it — Yii3's SAPI emitter does not finish the request itself). Disable only if other shutdown functions still write to the response |
 
 ### Span names & `http.route`
 
@@ -142,18 +142,23 @@ re-throws; nested spans inherit the parent trace id).
 | `OtelMiddleware` | PSR-15 SERVER root span + incoming-context extraction |
 | `TraceContextExtractor` / `TraceContextInjector` | W3C context in / out |
 | `SpanFlusher` | `forceFlush()` for long-running workers |
+| `ShutdownFlushHook` | the DI-registered shutdown hook: force-flushes, never shuts the provider down |
 
 ### Ending spans vs flushing the exporter
 
 Middleware ends the root span in `finally` every request (no span leak). Flushing
 the batch exporter is **separate** — `new TracerProvider(...)` registers **no**
 automatic shutdown flush, so with `register_shutdown_flush: true` (the default)
-the DI wiring registers one for you:
+the DI wiring registers one for you (`ShutdownFlushHook`); the hook calls `forceFlush()` — it exports what is buffered and keeps the
+provider usable, it never calls `shutdown()`. That makes the hook safe on every
+runtime, including the ones where shutdown functions run after **every
+request**:
 
 | Runtime | With the default `register_shutdown_flush: true` |
 |---|---|
 | **php-fpm** | The hook runs at the **end of every request**, after the response was sent with `fastcgi_finish_request` — one OTLP round-trip per request. That is the only correct option on fpm: there is no user-land worker-shutdown hook, and batch-buffered spans are otherwise **lost** when fpm recycles the worker. (`batch: false` / `SimpleSpanProcessor` is the alternative: export per span) |
-| **RoadRunner / Swoole / FrankenPHP** | The hook fires once at worker exit — safe, but consider `register_shutdown_flush: false` + `SpanFlusher::flush()` on a timer / every N requests, so a crash loses at most one interval |
+| **Rapira HTTP worker / FrankenPHP worker mode** | Shutdown functions run after every request here too. The hook force-flushes per request and keeps the provider usable — before the fix (a `shutdown()` hook) the span processor was closed after request 1 and **every later span was silently dropped** (#26) |
+| **RoadRunner / Swoole** | The force-flush hook fires per request / worker iteration as well. If you flush via `SpanFlusher::flush()` on a timer instead, set `register_shutdown_flush: false`, so a crash loses at most one interval |
 | **CLI / cron** | The hook fires once at process exit — exactly right |
 
 ```php

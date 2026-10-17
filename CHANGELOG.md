@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.2 — 2026-10-17
+
+- **Fixed.** Every request's spans are flushed at its own end on persistent
+  worker runtimes (#29). A shutdown function registered once, at provider
+  build, is cleared with the request that registered it on Rapira's HTTP
+  worker and FrankenPHP worker mode — the hook fired after the first request
+  only, and every later span waited in the `BatchSpanProcessor` queue until
+  it filled (512 by default; a PHP worker has no timer, so
+  `scheduled_delay_ms` does not help). `OtelMiddleware` now re-registers the
+  flush on every request — the middleware is the code that knows a request
+  started. The boot-time registration still covers console commands and apps
+  that run no middleware; php-fpm behaviour is unchanged; `fastcgi_finish_request()`
+  keeps running before the flush. The di-web wiring resolves the hook lazily,
+  gated on `register_shutdown_flush` AND `enabled` — nothing OTel is built
+  when the SDK is off. `yiisoft/di` `^1.4` added to require-dev for the
+  container-backed `ConfigWiringTest`.
+
 ## 1.2.1 — 2026-10-17
 
 ### Fixed

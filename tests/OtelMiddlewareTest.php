@@ -20,6 +20,7 @@ use Rasuvaeff\Yii3TelemetryOtel\OtelMiddleware;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
 use Rasuvaeff\Yii3TelemetryOtel\RouteNameResolverInterface;
+use Rasuvaeff\Yii3TelemetryOtel\ShutdownFlushHook;
 use Rasuvaeff\Yii3TelemetryOtel\TraceContextExtractor;
 use Testo\Assert;
 use Testo\Codecov\Covers;
@@ -249,6 +250,29 @@ final class OtelMiddlewareTest
         Assert::same($attributes->get('http.request.param.sort'), 'price');
     }
 
+    /**
+     * Zero is a legal limit (skip the capture entirely); a negative one is
+     * refused at construction.
+     */
+    public function captureLimitsAreValidatedAtConstruction(): void
+    {
+        $zero = new OtelMiddleware($this->tracer, maxQueryBytes: 0, maxRequestParams: 0);
+        $zero->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/users?q=x'),
+            $this->handler(200),
+        );
+        Assert::false($this->onlySpan()->getAttributes()->has('url.query'));
+
+        foreach ([[-1, 50], [4096, -1]] as [$maxQueryBytes, $maxRequestParams]) {
+            try {
+                new OtelMiddleware($this->tracer, maxQueryBytes: $maxQueryBytes, maxRequestParams: $maxRequestParams);
+                Assert::true(actual: false, message: 'Expected a negative capture limit to be refused');
+            } catch (\InvalidArgumentException $exception) {
+                Assert::string($exception->getMessage())->contains('non-negative');
+            }
+        }
+    }
+
     public function captureQueryCanBeDisabled(): void
     {
         $middleware = new OtelMiddleware(
@@ -360,5 +384,87 @@ final class OtelMiddlewareTest
         Assert::count($spans, 1);
 
         return $spans[0];
+    }
+
+    /**
+     * The #29 regression: on persistent worker runtimes shutdown functions are
+     * cleared with the request that registered them, so a hook registered
+     * once at provider build flushes after the first request only — later
+     * spans wait in the batch queue until it fills. The middleware
+     * re-registers the flush per request; the registrar spy is the runtime
+     * simulation (functions registered during request N are collected, then
+     * fired at that request's end), and every request's span must be
+     * exported at its own end — with the batch processor on.
+     */
+    public function perRequestFlushExportsEveryRequestsSpansAtItsOwnEnd(): void
+    {
+        $exporter = new InMemoryExporter(new \ArrayObject());
+        $provider = (new OtelTracerProviderFactory(serviceName: 'test', batch: true))->create($exporter);
+        $tracer = (new OtelTracerProvider($provider))->getTracer();
+
+        /** @var list<ShutdownFlushHook> $pending */
+        $pending = [];
+        $middleware = new OtelMiddleware(
+            tracer: $tracer,
+            excludedPaths: [],
+            shutdownFlushHook: new ShutdownFlushHook(provider: $provider, finishRequest: false),
+            shutdownRegistrar: static function (ShutdownFlushHook $hook) use (&$pending): void {
+                $pending[] = $hook;
+            },
+        );
+
+        $requestEnd = static function () use (&$pending): void {
+            foreach ($pending as $hook) {
+                $hook();
+            }
+            $pending = [];
+        };
+
+        $middleware->process($this->factory->createServerRequest('GET', 'https://api.example/probe'), $this->handler(200));
+        $requestEnd();
+        Assert::count($exporter->getSpans(), 1);
+
+        // The second request must get its own registration: on Rapira /
+        // FrankenPHP the first request's functions are gone by now.
+        $middleware->process($this->factory->createServerRequest('GET', 'https://api.example/probe'), $this->handler(200));
+        Assert::count($pending, 1);
+        $requestEnd();
+        Assert::count($exporter->getSpans(), 2);
+    }
+
+    public function registersTheFlushOncePerRequestAndNeverForExcludedPaths(): void
+    {
+        $registrations = 0;
+        $exporter = new InMemoryExporter(new \ArrayObject());
+        $provider = (new OtelTracerProviderFactory(serviceName: 'test', batch: true))->create($exporter);
+
+        $middleware = new OtelMiddleware(
+            tracer: (new OtelTracerProvider($provider))->getTracer(),
+            excludedPaths: ['/metrics'],
+            shutdownFlushHook: new ShutdownFlushHook(provider: $provider, finishRequest: false),
+            shutdownRegistrar: static function (ShutdownFlushHook $hook) use (&$registrations): void {
+                $registrations++;
+            },
+        );
+
+        $middleware->process($this->factory->createServerRequest('GET', 'https://api.example/metrics'), $this->handler(200));
+        Assert::same($registrations, 0);
+
+        $middleware->process($this->factory->createServerRequest('GET', 'https://api.example/users'), $this->handler(200));
+        Assert::same($registrations, 1);
+
+        $middleware->process($this->factory->createServerRequest('GET', 'https://api.example/users'), $this->handler(200));
+        Assert::same($registrations, 2);
+
+        // Without a hook nothing is registered at all: the boot-time hook
+        // from config/di.php stands alone.
+        $bare = new OtelMiddleware(
+            tracer: $this->tracer,
+            shutdownRegistrar: static function (ShutdownFlushHook $hook) use (&$registrations): void {
+                $registrations++;
+            },
+        );
+        $bare->process($this->factory->createServerRequest('GET', 'https://api.example/users'), $this->handler(200));
+        Assert::same($registrations, 2);
     }
 }

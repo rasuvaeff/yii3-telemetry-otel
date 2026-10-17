@@ -73,6 +73,13 @@ final readonly class OtelMiddleware implements MiddlewareInterface
      * @param int $maxRequestParams maximum request parameters to attach
      * @param list<string> $requestParamAllowlist when non-empty, only these
      *        parameter names are attached
+     * @param ShutdownFlushHook|null $shutdownFlushHook the flush to register
+     *        per request — persistent worker runtimes clear shutdown functions
+     *        with the request that registered them (#29); null registers
+     *        nothing (the boot-time hook from `config/di.php` still stands)
+     * @param \Closure(ShutdownFlushHook): void|null $shutdownRegistrar how the
+     *        hook is registered; PHP's `register_shutdown_function()` unless
+     *        a test hands in its own runtime simulation
      */
     public function __construct(
         private TracerInterface $tracer,
@@ -84,6 +91,8 @@ final readonly class OtelMiddleware implements MiddlewareInterface
         private int $maxQueryBytes = self::DEFAULT_MAX_QUERY_BYTES,
         private int $maxRequestParams = self::DEFAULT_MAX_REQUEST_PARAMS,
         private array $requestParamAllowlist = [],
+        private ?ShutdownFlushHook $shutdownFlushHook = null,
+        private ?\Closure $shutdownRegistrar = null,
     ) {
         if ($this->maxQueryBytes < 0 || $this->maxRequestParams < 0) {
             throw new \InvalidArgumentException('Request capture limits must be non-negative');
@@ -95,6 +104,18 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     {
         if (\in_array($request->getUri()->getPath(), $this->excludedPaths, true)) {
             return $handler->handle($request);
+        }
+
+        // A shutdown function registered once, at provider build, is cleared
+        // with the first request on persistent worker runtimes (Rapira's HTTP
+        // worker, FrankenPHP worker mode): functions registered during
+        // request N run after request N and never again (#29). The middleware
+        // is the code that knows a request started, so it re-registers the
+        // flush per request; on php-fpm the hook behaves exactly as before.
+        $shutdownFlushHook = $this->shutdownFlushHook;
+
+        if ($shutdownFlushHook instanceof \Rasuvaeff\Yii3TelemetryOtel\ShutdownFlushHook) {
+            ($this->shutdownRegistrar ?? register_shutdown_function(...))($shutdownFlushHook);
         }
 
         $scope = $this->extractor->extract($request)->activate();

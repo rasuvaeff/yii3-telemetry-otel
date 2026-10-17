@@ -15,6 +15,7 @@ use Rasuvaeff\Yii3TelemetryOtel\ConsoleCommandSpanListener;
 use Rasuvaeff\Yii3TelemetryOtel\OtelMiddleware;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtlpExporterFactory;
+use Rasuvaeff\Yii3TelemetryOtel\ShutdownFlushHook;
 use Testo\Assert;
 use Testo\Codecov\CoversNothing;
 use Testo\Test;
@@ -191,18 +192,25 @@ final class ConfigWiringTest
 
     public function webConfigBindsTheMiddlewareWithExcludedPaths(): void
     {
-        /** @var array<string, mixed> $params */
-        $params = require __DIR__ . '/../config/params.php';
-        $params['rasuvaeff/yii3-telemetry-otel']['excluded_paths'] = ['/metrics'];
+        $middleware = $this->webMiddleware(['excluded_paths' => ['/metrics']]);
 
-        /** @var array<string, mixed> $di */
-        $di = (static fn(array $params): array => require __DIR__ . '/../config/di-web.php')($params);
+        Assert::same($this->property($middleware, 'excludedPaths'), ['/metrics']);
+        Assert::instanceOf($this->property($middleware, 'shutdownFlushHook'), ShutdownFlushHook::class);
+    }
 
-        Assert::array($di)->hasKeys(OtelMiddleware::class);
+    public function webMiddlewareGetsNoHookWhenTheFlushIsOff(): void
+    {
+        Assert::null($this->property($this->webMiddleware(['register_shutdown_flush' => false]), 'shutdownFlushHook'));
+    }
 
-        /** @var array{__construct(): array{excludedPaths: mixed}} $definition */
-        $definition = $di[OtelMiddleware::class];
-        Assert::same($definition['__construct()']['excludedPaths'], ['/metrics']);
+    public function webMiddlewareGetsNoHookWhenTheSdkIsDisabled(): void
+    {
+        $middleware = $this->webMiddleware(['enabled' => false]);
+
+        // Gated on `enabled` too: resolving the hook would pull the whole
+        // SDK chain (exporter included), which "nothing OTel is built"
+        // forbids when the SDK is off.
+        Assert::null($this->property($middleware, 'shutdownFlushHook'));
     }
 
     public function paramsAreNamespaced(): void
@@ -213,9 +221,6 @@ final class ConfigWiringTest
         Assert::array($params)->hasKeys('rasuvaeff/yii3-telemetry-otel');
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     /**
      * @param array<string, mixed> $overrides package-param overrides
      */
@@ -229,5 +234,35 @@ final class ConfigWiringTest
         $di = (static fn(array $params): array => require __DIR__ . '/../config/di.php')($params);
 
         return $di;
+    }
+
+    /**
+     * The web middleware as the application resolves it: the backend di.php
+     * plus di-web.php in one container, with the core Tracer the core package
+     * would bind (the core's own config is not loaded here).
+     *
+     * @param array<string, mixed> $overrides package-param overrides
+     */
+    private function webMiddleware(array $overrides = []): OtelMiddleware
+    {
+        /** @var array<string, mixed> $params */
+        $params = require __DIR__ . '/../config/params.php';
+        $params['rasuvaeff/yii3-telemetry-otel'] = $overrides + $params['rasuvaeff/yii3-telemetry-otel'];
+
+        /** @var array<string, mixed> $di */
+        $definitions = (static fn(array $params): array => require __DIR__ . '/../config/di.php')($params);
+        /** @var array<string, mixed> $diWeb */
+        $diWeb = (static fn(array $params): array => require __DIR__ . '/../config/di-web.php')($params);
+        $definitions = [...$definitions, ...$diWeb];
+        $definitions[TracerInterface::class] = static fn(TracerProviderInterface $provider): TracerInterface => new Tracer($provider);
+
+        $container = new \Yiisoft\Di\Container(\Yiisoft\Di\ContainerConfig::create()->withDefinitions($definitions));
+
+        return $container->get(OtelMiddleware::class);
+    }
+
+    private function property(object $object, string $name): mixed
+    {
+        return (new \ReflectionProperty($object, $name))->getValue($object);
     }
 }

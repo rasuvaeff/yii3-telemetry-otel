@@ -61,16 +61,24 @@ return [
         // fastcgi_finish_request() first: without it the client WAITS for the
         // OTLP export round-trip (measured ~+100ms per request) — Yii3's SAPI
         // emitter does not finish the request itself.
+        //
+        // forceFlush(), NOT shutdown(): shutdown functions run after EVERY
+        // request on per-request-shutdown runtimes (Rapira's HTTP worker,
+        // FrankenPHP worker mode), and shutdown() closes the span processor
+        // ($this->closed = true) — every span of every later request is
+        // silently dropped. forceFlush() drains the buffer and keeps the
+        // provider usable; on php-fpm the process recycles either way, so
+        // forceFlush() is the safe universal choice.
+        //
+        // This boot-time registration covers the console commands and apps
+        // that run no OtelMiddleware: on CLI shutdown functions run at process
+        // exit — exactly right. On persistent web workers it fires after the
+        // first request only (the runtime clears the functions with the
+        // request that registered them, #29) — OtelMiddleware re-registers
+        // the flush per request, which is the web half of the guarantee.
         if ((bool) ($config['register_shutdown_flush'] ?? true)) {
             $finishRequest = (bool) ($config['finish_request_before_flush'] ?? true);
 
-            // forceFlush(), NOT shutdown(): shutdown functions run after EVERY
-            // request on per-request-shutdown runtimes (Rapira's HTTP worker,
-            // FrankenPHP worker mode), and shutdown() closes the span processor
-            // ($this->closed = true) — every span of every later request is
-            // silently dropped. forceFlush() drains the buffer and keeps the
-            // provider usable; on php-fpm the process recycles either way, so
-            // forceFlush() is the safe universal choice.
             register_shutdown_function(new ShutdownFlushHook(
                 provider: $provider,
                 finishRequest: $finishRequest,
@@ -79,6 +87,14 @@ return [
 
         return $provider;
     },
+
+    // The per-request flush OtelMiddleware registers on every request (#29).
+    // Resolving it is lazy: with `enabled` off nothing requests it, so no
+    // exporter, no SDK — the di-web wiring gates on both params.
+    ShutdownFlushHook::class => static fn (OtelSdkTracerProviderInterface $provider): ShutdownFlushHook => new ShutdownFlushHook(
+        provider: $provider,
+        finishRequest: (bool) ($params['rasuvaeff/yii3-telemetry-otel']['finish_request_before_flush'] ?? true),
+    ),
 
     // The SDK provider also satisfies the OTel API provider consumed by
     // OtelTracerProvider and ConsoleCommandSpanListener. With `enabled` off it

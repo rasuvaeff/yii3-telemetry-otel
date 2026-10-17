@@ -27,10 +27,14 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   or pass `sampler:` to `OtelTracerProviderFactory` explicitly. Kill switch:
   `OTEL_SDK_DISABLED=true` (params `enabled`) binds the no-op NullTracerProvider.
 - Params toggles: `enabled` (default true), `batch` (true),
-  `register_shutdown_flush` (true — DI registers `ShutdownFlushHook`, which
-  calls `forceFlush()` at shutdown and NEVER `shutdown()`: safe on runtimes
-  where shutdown functions run per request (php-fpm, Rapira HTTP worker,
-  FrankenPHP worker mode); disable when flushing via SpanFlusher on a timer),
+  `register_shutdown_flush` (true — `ShutdownFlushHook`, which
+  calls `forceFlush()` and NEVER `shutdown()`: safe on runtimes
+  where shutdown functions run per request. `OtelMiddleware` re-registers the
+  hook on EVERY request — persistent workers (Rapira HTTP worker, FrankenPHP
+  worker mode) clear shutdown functions with the request that registered
+  them, so a one-time hook strands later spans in the batch queue (#29);
+  the boot-time registration covers CLI and apps without middleware.
+  Disable when flushing via SpanFlusher on a timer),
   `content_type` (protobuf default; honours
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
   OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise),
@@ -108,8 +112,9 @@ use Rasuvaeff\Yii3TelemetryOtel\SpanFlusher;
 $flusher = new SpanFlusher($sdkProvider); // forceFlush()
 // RoadRunner/Swoole: on worker stop / a timer — never per request.
 // php-fpm / CLI / per-request-shutdown workers: the DI wiring already registers
-// ShutdownFlushHook ($provider->forceFlush() at every request shutdown — the
-// provider stays usable, see yii3-telemetry-otel#26):
+// ShutdownFlushHook ($provider->forceFlush() — the provider stays usable,
+// see yii3-telemetry-otel#26; OtelMiddleware re-registers it per request on
+// persistent workers, see #29):
 register_shutdown_function(static fn (): bool => $flusher->flush());
 // No flush registered + batch processor = buffered spans LOST on fpm worker recycle.
 ```

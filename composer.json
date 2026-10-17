@@ -45,6 +45,7 @@
         "testo/bridge-infection": "^0.1.6",
         "testo/testo": "^0.10.25",
         "vimeo/psalm": "^6.16",
+        "yiisoft/di": "^1.4",
         "yiisoft/dummy-provider": "^1.1",
         "yiisoft/router": "^4.0.2",
         "yiisoft/yii-console": "^2.4"

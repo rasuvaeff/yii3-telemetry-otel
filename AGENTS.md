@@ -115,12 +115,21 @@ docker run --rm -v "$REPO":/repo -w /repo/yii3-telemetry-otel composer:2 \
   otherwise. NEVER name a span with the raw path.
 - **Params toggles**: `enabled` (honours `OTEL_SDK_DISABLED`; off → di.php binds
   core `NullTracerProvider` with a dependency-free closure — nothing OTel is
-  built) and `register_shutdown_flush` (default true; di.php registers the
-  public `ShutdownFlushHook` callable via `register_shutdown_function` — it
-  calls `forceFlush()`, NEVER `$provider->shutdown()` #26: shutdown functions
-  run after every request on per-request-shutdown runtimes, and `shutdown()`
-  closed the span processor there, losing all later spans).
-  `ConfigWiringTest` covers both branches; keep it in sync.
+  built) and `register_shutdown_flush` (default true; the force-flush
+  `ShutdownFlushHook` is registered TWICE on purpose: once at provider build —
+  that one covers console commands and apps without `OtelMiddleware`, firing
+  at CLI process exit — and once per request by `OtelMiddleware` itself
+  (#29: persistent worker runtimes like Rapira's HTTP worker and FrankenPHP
+  worker mode CLEAR shutdown functions with the request that registered
+  them, so a one-time hook strands every later span in the batch queue until
+  it fills; the middleware is the code that knows a request started). The
+  hook calls `forceFlush()`, NEVER `$provider->shutdown()` — #26: `shutdown()`
+  closed the processor there, losing all later spans. The di-web wiring
+  resolves the hook LAZILY, gated on both `register_shutdown_flush` AND
+  `enabled` — resolving it pulls the SDK chain, which "nothing OTel is built"
+  forbids when the SDK is off.
+  `ConfigWiringTest` covers these branches (through a real `yiisoft/di`
+  container for the web definition); keep it in sync.
 - Code: `declare(strict_types=1)`, `final readonly class`, `#[\Override]`,
   explicit types.
 - **CI workflows are SHA-pinned.** Every `uses:` references a 40-char commit SHA

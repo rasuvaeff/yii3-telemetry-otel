@@ -61,12 +61,18 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     private const string MASK = '***';
     private const int MAX_PARAM_VALUE_LENGTH = 200;
     private const int MAX_JSON_BODY_BYTES = 8192;
+    private const int DEFAULT_MAX_QUERY_BYTES = 4096;
+    private const int DEFAULT_MAX_REQUEST_PARAMS = 50;
 
     /**
      * @param list<string> $excludedPaths exact request paths to skip (e.g. '/metrics')
      * @param bool $captureQuery record `url.query` (sensitive values masked)
      * @param bool $captureRequestParams record query/form/JSON-body parameters as
      *        `http.request.param.<name>` attributes (masked + truncated)
+     * @param int $maxQueryBytes maximum query-string bytes to inspect
+     * @param int $maxRequestParams maximum request parameters to attach
+     * @param list<string> $requestParamAllowlist when non-empty, only these
+     *        parameter names are attached
      */
     public function __construct(
         private TracerInterface $tracer,
@@ -75,7 +81,14 @@ final readonly class OtelMiddleware implements MiddlewareInterface
         private array $excludedPaths = [],
         private bool $captureQuery = true,
         private bool $captureRequestParams = false,
-    ) {}
+        private int $maxQueryBytes = self::DEFAULT_MAX_QUERY_BYTES,
+        private int $maxRequestParams = self::DEFAULT_MAX_REQUEST_PARAMS,
+        private array $requestParamAllowlist = [],
+    ) {
+        if ($this->maxQueryBytes < 0 || $this->maxRequestParams < 0) {
+            throw new \InvalidArgumentException('Request capture limits must be non-negative');
+        }
+    }
 
     #[\Override]
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -90,6 +103,10 @@ final readonly class OtelMiddleware implements MiddlewareInterface
             return $this->tracer->trace(
                 name: $request->getMethod(),
                 callback: function (SpanInterface $span) use ($request, $handler): ResponseInterface {
+                    if ($span->isRecording()) {
+                        $this->recordRequestDataAttributes($span, $request);
+                    }
+
                     $response = $handler->handle($request);
 
                     // The route is known only after routing ran inside the handler.
@@ -113,7 +130,6 @@ final readonly class OtelMiddleware implements MiddlewareInterface
                     self::ATTR_REQUEST_METHOD => $request->getMethod(),
                     self::ATTR_URL_PATH => $request->getUri()->getPath(),
                     self::ATTR_SERVER_ADDRESS => $request->getUri()->getHost(),
-                    ...$this->requestDataAttributes($request),
                 ],
                 traceKind: TraceKind::Server,
             );
@@ -122,28 +138,32 @@ final readonly class OtelMiddleware implements MiddlewareInterface
         }
     }
 
-    /**
-     * @return array<string, string>
-     */
-    private function requestDataAttributes(ServerRequestInterface $request): array
+    private function recordRequestDataAttributes(SpanInterface $span, ServerRequestInterface $request): void
     {
-        $attributes = [];
         $query = $request->getUri()->getQuery();
 
-        if ($this->captureQuery && $query !== '') {
-            $attributes[self::ATTR_URL_QUERY] = $this->redactedQuery($query);
+        if ($this->captureQuery && $query !== '' && \strlen($query) <= $this->maxQueryBytes) {
+            $span->setAttribute(self::ATTR_URL_QUERY, $this->redactedQuery($query));
         }
 
-        if ($this->captureRequestParams) {
+        if ($this->captureRequestParams && $this->maxRequestParams > 0) {
+            $count = 0;
+
             /** @var mixed $value */
             foreach ($this->requestParams($request) as $name => $value) {
-                $attributes[self::PARAM_ATTR_PREFIX . $name] = $this->isSensitiveKey($name)
+                if ($this->requestParamAllowlist !== [] && !\in_array($name, $this->requestParamAllowlist, true)) {
+                    continue;
+                }
+
+                $span->setAttribute(self::PARAM_ATTR_PREFIX . $name, $this->isSensitiveKey($name)
                     ? self::MASK
-                    : $this->stringifyParam($value);
+                    : $this->stringifyParam($value));
+
+                if (++$count >= $this->maxRequestParams) {
+                    break;
+                }
             }
         }
-
-        return $attributes;
     }
 
     /**

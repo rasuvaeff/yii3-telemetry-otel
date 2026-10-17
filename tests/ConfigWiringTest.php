@@ -86,9 +86,17 @@ final class ConfigWiringTest
         Assert::true($config['enabled']);
         Assert::true($config['register_shutdown_flush']);
         Assert::true($config['batch']);
+        Assert::same($config['max_queue_size'], null);
+        Assert::same($config['max_export_batch_size'], null);
+        Assert::same($config['scheduled_delay_ms'], null);
+        Assert::same($config['export_timeout_ms'], null);
+        Assert::same($config['auto_flush'], null);
         Assert::same($config['content_type'], 'application/x-protobuf');
         Assert::same($config['excluded_paths'], []);
         Assert::true($config['capture_query']);
+        Assert::same($config['max_query_bytes'], 4096);
+        Assert::same($config['max_request_params'], 50);
+        Assert::same($config['request_param_allowlist'], []);
         Assert::true($config['finish_request_before_flush']);
         Assert::false($config['capture_request_params']);
         Assert::same($config['excluded_commands'], ['queue:listen', 'queue:listen-all']);
@@ -132,6 +140,23 @@ final class ConfigWiringTest
         Assert::same($recorder->timeout, 1.5);
         Assert::same($recorder->maxRetries, 0);
         Assert::same($recorder->retryDelay, 50);
+    }
+
+    public function diPassesBatchProcessorControlsToTheProviderFactory(): void
+    {
+        $di = $this->di([
+            'register_shutdown_flush' => false,
+            'max_queue_size' => 7,
+            'max_export_batch_size' => 3,
+            'scheduled_delay_ms' => 250,
+            'export_timeout_ms' => 900,
+            'auto_flush' => false,
+        ]);
+
+        $exporter = $di[SpanExporterInterface::class](new OtlpExporterFactory());
+        $provider = $di[OtelSdkTracerProviderInterface::class]($exporter);
+
+        Assert::instanceOf($provider, OtelSdkTracerProviderInterface::class);
     }
 
     public function diBindsTheConsoleListenerWithExcludedCommands(): void

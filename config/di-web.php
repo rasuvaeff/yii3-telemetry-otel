@@ -16,6 +16,9 @@ return [
             'excludedPaths' => (array) ($params['rasuvaeff/yii3-telemetry-otel']['excluded_paths'] ?? []),
             'captureQuery' => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['capture_query'] ?? true),
             'captureRequestParams' => (bool) ($params['rasuvaeff/yii3-telemetry-otel']['capture_request_params'] ?? false),
+            'maxQueryBytes' => (int) ($params['rasuvaeff/yii3-telemetry-otel']['max_query_bytes'] ?? 4096),
+            'maxRequestParams' => (int) ($params['rasuvaeff/yii3-telemetry-otel']['max_request_params'] ?? 50),
+            'requestParamAllowlist' => (array) ($params['rasuvaeff/yii3-telemetry-otel']['request_param_allowlist'] ?? []),
         ],
     ],
 ];

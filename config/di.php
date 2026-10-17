@@ -11,6 +11,7 @@ use Rasuvaeff\Yii3TelemetryOtel\ConsoleCommandSpanListener;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProvider;
 use Rasuvaeff\Yii3TelemetryOtel\OtelTracerProviderFactory;
 use Rasuvaeff\Yii3TelemetryOtel\OtlpExporterFactory;
+use Rasuvaeff\Yii3TelemetryOtel\ShutdownFlushHook;
 
 /** @var array $params */
 
@@ -63,13 +64,17 @@ return [
         if ((bool) ($config['register_shutdown_flush'] ?? true)) {
             $finishRequest = (bool) ($config['finish_request_before_flush'] ?? true);
 
-            register_shutdown_function(static function () use ($provider, $finishRequest): void {
-                if ($finishRequest && \function_exists('fastcgi_finish_request')) {
-                    fastcgi_finish_request();
-                }
-
-                $provider->shutdown();
-            });
+            // forceFlush(), NOT shutdown(): shutdown functions run after EVERY
+            // request on per-request-shutdown runtimes (Rapira's HTTP worker,
+            // FrankenPHP worker mode), and shutdown() closes the span processor
+            // ($this->closed = true) — every span of every later request is
+            // silently dropped. forceFlush() drains the buffer and keeps the
+            // provider usable; on php-fpm the process recycles either way, so
+            // forceFlush() is the safe universal choice.
+            register_shutdown_function(new ShutdownFlushHook(
+                provider: $provider,
+                finishRequest: $finishRequest,
+            ));
         }
 
         return $provider;

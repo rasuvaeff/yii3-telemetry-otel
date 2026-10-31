@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.3.0 — 2026-10-31
+
+- **Added.** `OtelMiddleware` `sampleRatio` (params `sample_ratio`, default
+  `1.0`): head sampling decided before any OpenTelemetry work for requests
+  without an incoming `traceparent`; a dropped request passes straight through
+  (no span, no context scope, no flush registration). Requests carrying
+  `traceparent` still reach the SDK sampler (#34).
+- **Changed.** A request without `traceparent` no longer extracts and
+  activates an (empty) context scope (#34).
+- Benchmark `middlewareUnsampledRequest` added (in-process: ~11 µs with an
+  always-off SDK sampler, ~0.4 µs with `sampleRatio: 0.0`).
+
 ## 1.2.2 — 2026-10-17
 
 - **Fixed.** Every request's spans are flushed at its own end on persistent

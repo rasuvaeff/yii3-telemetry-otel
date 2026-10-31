@@ -94,6 +94,7 @@ final class ConfigWiringTest
         Assert::same($config['auto_flush'], null);
         Assert::same($config['content_type'], 'application/x-protobuf');
         Assert::same($config['excluded_paths'], []);
+        Assert::same($config['sample_ratio'], 1.0);
         Assert::true($config['capture_query']);
         Assert::same($config['max_query_bytes'], 4096);
         Assert::same($config['max_request_params'], 50);
@@ -196,6 +197,12 @@ final class ConfigWiringTest
 
         Assert::same($this->property($middleware, 'excludedPaths'), ['/metrics']);
         Assert::instanceOf($this->property($middleware, 'shutdownFlushHook'), ShutdownFlushHook::class);
+    }
+
+    public function webConfigPassesTheSampleRatioToTheMiddleware(): void
+    {
+        Assert::same($this->property($this->webMiddleware([]), 'sampleRatio'), 1.0);
+        Assert::same($this->property($this->webMiddleware(['sample_ratio' => 0.01]), 'sampleRatio'), 0.01);
     }
 
     public function webMiddlewareGetsNoHookWhenTheFlushIsOff(): void

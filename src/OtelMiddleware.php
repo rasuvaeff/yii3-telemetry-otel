@@ -39,6 +39,19 @@ use Rasuvaeff\Yii3Telemetry\TracerInterface;
  *   `http.request.param.<name>`, sensitive keys masked, values truncated.
  *   Bodies larger than 8 KiB or non-seekable streams are skipped.
  *
+ * `$sampleRatio` (default 1.0 = off) is head sampling decided before any
+ * OpenTelemetry work happens: a request without an incoming `traceparent`
+ * header is traced with that probability and otherwise passes straight
+ * through (no span, no context scope, no flush registration). A request that
+ * carries `traceparent` always goes through the SDK, whose `parentbased_*`
+ * sampler honours the caller's decision, so distributed traces stay intact.
+ * It composes with the SDK sampler (a kept request is still subject to it):
+ * for a hot endpoint set the ratio here and the SDK sampler to
+ * `parentbased_always_on`.
+ *
+ * A request without `traceparent` skips context extraction and activation
+ * altogether — there is nothing to continue.
+ *
  * Flushing the exporter is a separate concern (see {@see SpanFlusher}); it must
  * not happen per request.
  *
@@ -80,6 +93,8 @@ final readonly class OtelMiddleware implements MiddlewareInterface
      * @param \Closure(ShutdownFlushHook): void|null $shutdownRegistrar how the
      *        hook is registered; PHP's `register_shutdown_function()` unless
      *        a test hands in its own runtime simulation
+     * @param float $sampleRatio probability in [0, 1] that a request without an
+     *        incoming `traceparent` is traced at all; 1.0 traces every one
      */
     public function __construct(
         private TracerInterface $tracer,
@@ -93,9 +108,14 @@ final readonly class OtelMiddleware implements MiddlewareInterface
         private array $requestParamAllowlist = [],
         private ?ShutdownFlushHook $shutdownFlushHook = null,
         private ?\Closure $shutdownRegistrar = null,
+        private float $sampleRatio = 1.0,
     ) {
         if ($this->maxQueryBytes < 0 || $this->maxRequestParams < 0) {
             throw new \InvalidArgumentException('Request capture limits must be non-negative');
+        }
+
+        if (is_nan($this->sampleRatio) || $this->sampleRatio < 0.0 || $this->sampleRatio > 1.0) {
+            throw new \InvalidArgumentException('Sample ratio must be between 0 and 1');
         }
     }
 
@@ -103,6 +123,12 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         if (\in_array($request->getUri()->getPath(), $this->excludedPaths, true)) {
+            return $handler->handle($request);
+        }
+
+        $hasParent = $request->hasHeader('traceparent');
+
+        if (!$hasParent && $this->sampleRatio < 1.0 && !$this->sampled()) {
             return $handler->handle($request);
         }
 
@@ -118,7 +144,7 @@ final readonly class OtelMiddleware implements MiddlewareInterface
             ($this->shutdownRegistrar ?? register_shutdown_function(...))($shutdownFlushHook);
         }
 
-        $scope = $this->extractor->extract($request)->activate();
+        $scope = $hasParent ? $this->extractor->extract($request)->activate() : null;
 
         try {
             return $this->tracer->trace(
@@ -155,8 +181,13 @@ final readonly class OtelMiddleware implements MiddlewareInterface
                 traceKind: TraceKind::Server,
             );
         } finally {
-            $scope->detach();
+            $scope?->detach();
         }
+    }
+
+    private function sampled(): bool
+    {
+        return $this->sampleRatio > 0.0 && mt_rand() / mt_getrandmax() < $this->sampleRatio;
     }
 
     private function recordRequestDataAttributes(SpanInterface $span, ServerRequestInterface $request): void

@@ -54,6 +54,12 @@ return [
         // Exact request paths OtelMiddleware skips — scrape/probe endpoints
         // (Prometheus polls /metrics every few seconds; tracing that is noise).
         'excluded_paths' => [],
+        // Head sampling decided by OtelMiddleware before any OpenTelemetry work:
+        // the probability that a request WITHOUT an incoming `traceparent` is
+        // traced at all (1.0 = every one). Requests carrying `traceparent` go
+        // through the SDK sampler, so distributed traces stay intact. For a hot
+        // endpoint set it here and the SDK sampler to parentbased_always_on.
+        'sample_ratio' => 1.0,
         // Console commands ConsoleCommandSpanListener does NOT wrap in a root
         // span (long-running workers: one span for days is useless). Exact
         // names, or a prefix when the entry ends with `*` (e.g. 'outbox:*').

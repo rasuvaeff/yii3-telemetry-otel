@@ -29,6 +29,7 @@ return [
         return new OtelMiddleware(
             tracer: $tracer,
             excludedPaths: (array) ($config['excluded_paths'] ?? []),
+            sampleRatio: (float) ($config['sample_ratio'] ?? 1.0),
             captureQuery: (bool) ($config['capture_query'] ?? true),
             captureRequestParams: (bool) ($config['capture_request_params'] ?? false),
             maxQueryBytes: (int) ($config['max_query_bytes'] ?? 4096),

@@ -151,6 +151,103 @@ final class OtelMiddlewareTest
         Assert::false($span->getAttributes()->has('http.route'));
     }
 
+    public function zeroSampleRatioPassesThroughWithoutTracingOrFlushRegistration(): void
+    {
+        $registrations = 0;
+        $provider = (new OtelTracerProviderFactory(serviceName: 'test', batch: false))->create($this->exporter);
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            shutdownFlushHook: new ShutdownFlushHook(provider: $provider, finishRequest: false),
+            shutdownRegistrar: static function () use (&$registrations): void {
+                ++$registrations;
+            },
+            sampleRatio: 0.0,
+        );
+
+        $response = $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/serve'),
+            $this->handler(200),
+        );
+
+        Assert::same($response->getStatusCode(), 200);
+        Assert::count($this->exporter->getSpans(), 0);
+        Assert::same($registrations, 0);
+    }
+
+    public function fullSampleRatioTracesEveryRequest(): void
+    {
+        $middleware = new OtelMiddleware($this->tracer, sampleRatio: 1.0);
+
+        for ($i = 0; $i < 20; ++$i) {
+            $middleware->process(
+                $this->factory->createServerRequest('GET', 'https://api.example/serve'),
+                $this->handler(200),
+            );
+        }
+
+        Assert::count($this->exporter->getSpans(), 20);
+    }
+
+    public function partialSampleRatioTracesAMatchingFraction(): void
+    {
+        mt_srand(42);
+
+        foreach ([[0.9, 300, 400], [0.1, 0, 100]] as [$ratio, $min, $max]) {
+            $before = \count($this->exporter->getSpans());
+            $middleware = new OtelMiddleware($this->tracer, sampleRatio: $ratio);
+
+            for ($i = 0; $i < 400; ++$i) {
+                $middleware->process(
+                    $this->factory->createServerRequest('GET', 'https://api.example/serve'),
+                    $this->handler(200),
+                );
+            }
+
+            $traced = \count($this->exporter->getSpans()) - $before;
+            Assert::true($traced >= $min && $traced <= $max, 'Ratio ' . $ratio . ' traced ' . $traced . ' of 400');
+        }
+    }
+
+    public function incomingTraceparentBypassesTheSampleRatio(): void
+    {
+        $middleware = new OtelMiddleware($this->tracer, sampleRatio: 0.0);
+
+        $middleware->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/serve')
+                ->withHeader('traceparent', '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'),
+            $this->handler(200),
+        );
+
+        $span = $this->onlySpan();
+        Assert::same($span->getTraceId(), '0af7651916cd43dd8448eb211c80319c');
+        Assert::same($span->getParentSpanId(), 'b7ad6b7169203331');
+    }
+
+    public function sampleRatioIsValidatedAtConstruction(): void
+    {
+        foreach ([-0.1, 1.1, \NAN] as $ratio) {
+            try {
+                new OtelMiddleware($this->tracer, sampleRatio: $ratio);
+                Assert::true(actual: false, message: 'Expected an out-of-range ratio to be refused');
+            } catch (\InvalidArgumentException $exception) {
+                Assert::string($exception->getMessage())->contains('between 0 and 1');
+            }
+        }
+    }
+
+    public function requestWithoutTraceparentLeavesTheActiveContextUntouched(): void
+    {
+        $before = \OpenTelemetry\Context\Context::getCurrent();
+
+        $this->middleware()->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/serve'),
+            $this->handler(200),
+        );
+
+        Assert::same(\OpenTelemetry\Context\Context::getCurrent(), $before);
+        Assert::same($this->onlySpan()->getParentSpanId(), '0000000000000000');
+    }
+
     public function excludedPathIsNotTraced(): void
     {
         $middleware = new OtelMiddleware(

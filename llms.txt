@@ -38,6 +38,9 @@ Needs a PSR-18 client (guzzle) for OTLP export.
   `content_type` (protobuf default; honours
   OTEL_EXPORTER_OTLP_PROTOCOL=http/json), `excluded_paths` ([] — exact paths
   OtelMiddleware skips, e.g. '/metrics': scrape self-traffic is trace noise),
+  `sample_ratio` (1.0 — OtelMiddleware head sampling before any OTel work: chance a
+  request WITHOUT incoming traceparent is traced; with traceparent always goes to the
+  SDK sampler; pair with parentbased_always_on),
   `timeout` (10.0 s; from OTEL_EXPORTER_OTLP_TRACES_TIMEOUT, then
   OTEL_EXPORTER_OTLP_TIMEOUT — milliseconds per spec; invalid → default),
   `max_retries` (3; 0 = no retries), `retry_delay_ms` (100),

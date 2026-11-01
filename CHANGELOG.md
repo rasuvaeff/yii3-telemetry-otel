@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.3.1 — 2026-11-01
 
 - **Fixed.** With `captureRequestParams` on, a request with numeric parameter keys (`?0=a`, a form body or a JSON list body such as `["x","y"]`) no longer throws a `TypeError` from `OtelMiddleware::process()`: the keys are recorded as `http.request.param.0`, `http.request.param.1`, and a string `requestParamAllowlist` entry such as `'0'` matches them. Fixes #37.
 - Mutation testing now counts uncovered code (`--with-uncovered`, template mutator settings): overall MSI 94% against `minMsi` 85. Added `OtelMiddleware` tests for the sample-ratio boundary, query byte limit, parameter limits and allowlist, JSON body handling (case-insensitive content type, non-seekable, exact size limit, empty and scalar bodies, rewind), case-insensitive nested masking and value truncation. No src changes.

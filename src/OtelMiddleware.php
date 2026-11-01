@@ -202,7 +202,11 @@ final readonly class OtelMiddleware implements MiddlewareInterface
             $count = 0;
 
             /** @var mixed $value */
-            foreach ($this->requestParams($request) as $name => $value) {
+            foreach ($this->requestParams($request) as $key => $value) {
+                // PHP keeps numeric-string array keys as ints (`?0=a`, a list body), so the
+                // name is cast here, where it is used as a string.
+                $name = (string) $key;
+
                 if ($this->requestParamAllowlist !== [] && !\in_array($name, $this->requestParamAllowlist, true)) {
                     continue;
                 }
@@ -222,15 +226,15 @@ final readonly class OtelMiddleware implements MiddlewareInterface
      * Query params + form params + top-level JSON-body params, in that
      * precedence order (later sources do not overwrite earlier names).
      *
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     private function requestParams(ServerRequestInterface $request): array
     {
-        $params = $this->stringKeyed($request->getQueryParams());
+        $params = $request->getQueryParams();
         $parsed = $request->getParsedBody();
 
         if (\is_array($parsed)) {
-            return $params + $this->stringKeyed($parsed);
+            return $params + $parsed;
         }
 
         if (str_contains(strtolower($request->getHeaderLine('Content-Type')), 'json')) {
@@ -241,17 +245,7 @@ final readonly class OtelMiddleware implements MiddlewareInterface
     }
 
     /**
-     * @param array<array-key, mixed> $data
-     *
-     * @return array<string, mixed>
-     */
-    private function stringKeyed(array $data): array
-    {
-        return array_combine(array_map(strval(...), array_keys($data)), array_values($data));
-    }
-
-    /**
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     private function jsonBodyParams(ServerRequestInterface $request): array
     {
@@ -277,7 +271,7 @@ final readonly class OtelMiddleware implements MiddlewareInterface
             return [];
         }
 
-        return $this->stringKeyed($decoded);
+        return $decoded;
     }
 
     private function redactedQuery(string $query): string

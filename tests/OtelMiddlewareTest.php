@@ -444,6 +444,187 @@ final class OtelMiddlewareTest
         Assert::false($attributes->has('http.request.param.drop'));
     }
 
+    public function sampleRatioBoundaryIsExclusive(): void
+    {
+        mt_srand(7);
+        $draw = mt_rand();
+        $ratio = $draw / mt_getrandmax();
+        mt_srand(7);
+
+        (new OtelMiddleware($this->tracer, sampleRatio: $ratio))->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/serve'),
+            $this->handler(200),
+        );
+
+        Assert::count($this->exporter->getSpans(), 0);
+    }
+
+    public function queryAtExactlyTheByteLimitIsCaptured(): void
+    {
+        (new OtelMiddleware($this->tracer, maxQueryBytes: 3))->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x?a=1'),
+            $this->handler(200),
+        );
+
+        Assert::same($this->onlySpan()->getAttributes()->get('url.query'), 'a=1');
+    }
+
+    public function requestParamsAreNotCapturedByDefault(): void
+    {
+        $this->middleware()->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x')->withQueryParams(['a' => '1']),
+            $this->handler(200),
+        );
+
+        Assert::false($this->onlySpan()->getAttributes()->has('http.request.param.a'));
+    }
+
+    public function zeroParameterLimitCapturesNoParameters(): void
+    {
+        (new OtelMiddleware($this->tracer, captureRequestParams: true, maxRequestParams: 0))->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x')->withQueryParams(['a' => '1']),
+            $this->handler(200),
+        );
+
+        Assert::false($this->onlySpan()->getAttributes()->has('http.request.param.a'));
+    }
+
+    public function allowlistSkipsDisallowedParametersWithoutStoppingTheScan(): void
+    {
+        (new OtelMiddleware($this->tracer, captureRequestParams: true, requestParamAllowlist: ['keep']))->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x')
+                ->withQueryParams(['drop' => 'no', 'keep' => 'yes']),
+            $this->handler(200),
+        );
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.keep'), 'yes');
+        Assert::false($attributes->has('http.request.param.drop'));
+    }
+
+    public function jsonContentTypeMatchIsCaseInsensitiveAndKeepsQueryParams(): void
+    {
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withQueryParams(['q' => 'phones'])
+            ->withHeader('Content-Type', 'Application/JSON')
+            ->withBody($this->factory->createStream('{"flag":true,"off":false,"none":null,"n":5}'));
+
+        $this->captureMiddleware()->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.q'), 'phones');
+        Assert::same($attributes->get('http.request.param.flag'), 'true');
+        Assert::same($attributes->get('http.request.param.off'), 'false');
+        Assert::same($attributes->get('http.request.param.none'), 'null');
+        Assert::same($attributes->get('http.request.param.n'), '5');
+    }
+
+    public function nonSeekableBodyYieldsNoJsonParameters(): void
+    {
+        $inner = $this->factory->createStream('{"email":"a@b.c"}');
+        $stream = new class ($inner) implements StreamInterface {
+            use StreamDecoratorTrait;
+
+            #[\Override]
+            public function isSeekable(): bool
+            {
+                return false;
+            }
+        };
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($stream);
+
+        $this->captureMiddleware()->process($request, $this->handler(200));
+
+        Assert::false($this->onlySpan()->getAttributes()->has('http.request.param.email'));
+    }
+
+    public function jsonBodyIsReadFromTheStartAndLeftRewound(): void
+    {
+        $body = $this->factory->createStream('{"email":"a@b.c"}');
+        $body->seek(0, \SEEK_END);
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($body);
+
+        $this->captureMiddleware()->process($request, $this->handler(200));
+
+        Assert::same($this->onlySpan()->getAttributes()->get('http.request.param.email'), 'a@b.c');
+        Assert::same($body->tell(), 0);
+    }
+
+    public function jsonBodyOfExactlyTheSizeLimitIsAcceptedAndOneByteMoreIsNot(): void
+    {
+        $exact = '{"k":"' . str_repeat('a', 8192 - 8) . '"}';
+        Assert::same(\strlen($exact), 8192);
+
+        foreach ([[$exact, true], [$exact . ' ', false]] as [$json, $captured]) {
+            $before = \count($this->exporter->getSpans());
+            $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+                ->withHeader('Content-Type', 'application/json')
+                ->withBody($this->factory->createStream($json));
+
+            $this->captureMiddleware()->process($request, $this->handler(200));
+
+            $spans = $this->exporter->getSpans();
+            Assert::same($spans[$before]->getAttributes()->has('http.request.param.k'), $captured);
+        }
+    }
+
+    public function emptyAndNonObjectJsonBodiesYieldNoParameters(): void
+    {
+        foreach (['', '5', '"text"'] as $json) {
+            $before = \count($this->exporter->getSpans());
+            $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+                ->withHeader('Content-Type', 'application/json')
+                ->withBody($this->factory->createStream($json));
+
+            $this->captureMiddleware()->process($request, $this->handler(200));
+
+            $attributes = $this->exporter->getSpans()[$before]->getAttributes();
+            foreach ($attributes->toArray() as $name => $_) {
+                Assert::false(str_starts_with((string) $name, 'http.request.param.'));
+            }
+        }
+    }
+
+    public function sensitiveKeysAreMaskedCaseInsensitivelyAtEveryLevel(): void
+    {
+        $this->middleware()->process(
+            $this->factory->createServerRequest(
+                'GET',
+                'https://api.example/x?PASSWORD=a&keep=1&nested%5BToken%5D=b&nested%5Bok%5D=2',
+            ),
+            $this->handler(200),
+        );
+
+        Assert::same(
+            $this->onlySpan()->getAttributes()->get('url.query'),
+            'PASSWORD=%2A%2A%2A&keep=1&nested%5BToken%5D=%2A%2A%2A&nested%5Bok%5D=2',
+        );
+    }
+
+    public function longParameterValuesAreTruncatedAtTwoHundredBytes(): void
+    {
+        $this->captureMiddleware()->process(
+            $this->factory->createServerRequest('GET', 'https://api.example/x')->withQueryParams([
+                'exact' => str_repeat('a', 200),
+                'over' => 'x' . str_repeat('b', 200),
+            ]),
+            $this->handler(200),
+        );
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.exact'), str_repeat('a', 200));
+        Assert::same($attributes->get('http.request.param.over'), 'x' . str_repeat('b', 199) . '…');
+    }
+
+    private function captureMiddleware(): OtelMiddleware
+    {
+        return new OtelMiddleware($this->tracer, captureRequestParams: true);
+    }
+
     private function resolver(?string $route): RouteNameResolverInterface
     {
         return new readonly class ($route) implements RouteNameResolverInterface {

@@ -347,6 +347,62 @@ final class OtelMiddlewareTest
         Assert::same($attributes->get('http.request.param.sort'), 'price');
     }
 
+    public function numericQueryKeysAreCapturedInsteadOfCrashing(): void
+    {
+        $request = $this->factory->createServerRequest('GET', 'https://api.example/x?0=a&1=b')
+            ->withQueryParams(['a', 'b']);
+
+        $response = $this->captureMiddleware()->process($request, $this->handler(200));
+
+        Assert::same($response->getStatusCode(), 200);
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.0'), 'a');
+        Assert::same($attributes->get('http.request.param.1'), 'b');
+    }
+
+    public function numericFormBodyKeysAreCaptured(): void
+    {
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withParsedBody(['first', 'second']);
+
+        $this->captureMiddleware()->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.0'), 'first');
+        Assert::same($attributes->get('http.request.param.1'), 'second');
+    }
+
+    public function aJsonListBodyIsCapturedByPosition(): void
+    {
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($this->factory->createStream('["x","y"]'));
+
+        $this->captureMiddleware()->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::same($attributes->get('http.request.param.0'), 'x');
+        Assert::same($attributes->get('http.request.param.1'), 'y');
+    }
+
+    public function aNumericKeyMatchesAStringAllowlistEntry(): void
+    {
+        $middleware = new OtelMiddleware(
+            $this->tracer,
+            new TraceContextExtractor(),
+            captureRequestParams: true,
+            requestParamAllowlist: ['1'],
+        );
+        $request = $this->factory->createServerRequest('POST', 'https://api.example/x')
+            ->withParsedBody(['first', 'second']);
+
+        $middleware->process($request, $this->handler(200));
+
+        $attributes = $this->onlySpan()->getAttributes();
+        Assert::null($attributes->get('http.request.param.0'));
+        Assert::same($attributes->get('http.request.param.1'), 'second');
+    }
+
     /**
      * Zero is a legal limit (skip the capture entirely); a negative one is
      * refused at construction.
